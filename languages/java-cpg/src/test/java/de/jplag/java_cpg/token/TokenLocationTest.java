@@ -1,7 +1,9 @@
 package de.jplag.java_cpg.token;
 
 import static de.jplag.SharedTokenType.FILE_END;
+import static de.jplag.java_cpg.token.CpgTokenType.CATCH_CLAUSE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
+import static de.jplag.java_cpg.token.CpgTokenType.LAMBDA_EXPRESSION;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
@@ -9,8 +11,10 @@ import static de.jplag.java_cpg.transformation.TransformationRepository.moveCons
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -18,11 +22,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import de.fraunhofer.aisec.cpg.TranslationConfiguration;
+import de.fraunhofer.aisec.cpg.TranslationManager;
+import de.fraunhofer.aisec.cpg.frontends.java.JavaLanguage;
+import de.fraunhofer.aisec.cpg.graph.Name;
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.statements.CatchClause;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
+import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
 import de.fraunhofer.aisec.cpg.sarif.Region;
 import de.jplag.Token;
+import de.jplag.TokenType;
 import de.jplag.java_cpg.JavaCpgLanguage;
 
 /**
@@ -68,6 +79,56 @@ class TokenLocationTest {
         assertEquals(startColumn, token.getStartColumn());
         assertEquals(endLine, token.getEndLine());
         assertEquals(endColumn, token.getEndColumn());
+    }
+
+    /**
+     * Lambda tokens must cover the signature and arrow without including the body.
+     */
+    @ParameterizedTest
+    @CsvSource({"false, 3, () ->", "true, 3, () ->", "false, 9, value ->", "true, 9, value ->", "false, 13, '(left, right) ->'",
+            "true, 13, '(left, right) ->'"})
+    void lambdaTokenCoversSignature(boolean normalize, int line, String expectedSource) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "LambdaExpressions.java").toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        Token token = language.parse(Set.of(file.toFile()), normalize).stream()
+                .filter(candidate -> candidate.getType() == LAMBDA_EXPRESSION && candidate.getStartLine() == line).findFirst().orElseThrow();
+
+        assertEquals(file.toFile(), token.getFile());
+        assertEquals(expectedSource, sourceOf(token).stripTrailing());
+    }
+
+    /**
+     * Traversal currently skips catch clauses, so exercise their closing token directly.
+     */
+    @Test
+    void catchEndTokenPointsToClosingBrace() throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "try", "Try.java").toAbsolutePath();
+        var configuration = new TranslationConfiguration.Builder().sourceLocations(file.toFile()).registerLanguage(new JavaLanguage()).build();
+        var graph = TranslationManager.builder().config(configuration).build().analyze().get();
+        var catchClause = SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(CatchClause.class::isInstance).map(CatchClause.class::cast)
+                .findFirst().orElseThrow();
+        var tokens = new ArrayList<Token>();
+        var consumer = new CpgTokenConsumer() {
+            @Override
+            public void addToken(TokenType type, File source, Region region, int length, Name name) {
+                tokens.add(new CpgToken(type, source, region, length, name));
+            }
+        };
+
+        consumer.addToken(CATCH_CLAUSE_END, catchClause, true);
+
+        assertEquals(1, tokens.size());
+        Token token = tokens.getFirst();
+        assertEquals(file.toFile(), token.getFile());
+        assertEquals(22, token.getStartLine());
+        assertEquals("}", sourceOf(token));
+    }
+
+    private static String sourceOf(Token token) throws Exception {
+        List<String> lines = Files.readAllLines(token.getFile().toPath()).subList(token.getStartLine() - 1, token.getEndLine());
+        lines.set(lines.size() - 1, lines.getLast().substring(0, token.getEndColumn() - 1));
+        lines.set(0, lines.getFirst().substring(token.getStartColumn() - 1));
+        return String.join("\n", lines);
     }
 
     /**

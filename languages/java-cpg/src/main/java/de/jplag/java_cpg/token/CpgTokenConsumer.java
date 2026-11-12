@@ -10,9 +10,11 @@ import org.slf4j.LoggerFactory;
 import de.fraunhofer.aisec.cpg.graph.Name;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
+import de.fraunhofer.aisec.cpg.graph.statements.CatchClause;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.LambdaExpression;
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
 import de.fraunhofer.aisec.cpg.sarif.Region;
 import de.jplag.Token;
@@ -66,6 +68,18 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
                 int line = isEndToken ? region.getEndLine() : region.startLine;
                 int column = isEndToken ? region.getEndColumn() - 1 : region.startColumn;
                 newRegion = new Region(line, column, line, column + 1);
+            }
+            case CatchClause _ when isEndToken -> newRegion = new Region(region.getEndLine(), region.getEndColumn() - 1, region.getEndLine(),
+                    region.getEndColumn());
+            case LambdaExpression lambda -> {
+                // The synthetic function spans the whole lambda; its body marks the end of the signature.
+                Node body = lambda.getFunction() == null ? null : lambda.getFunction().getBody();
+                PhysicalLocation bodyLocation = body == null ? null : body.getLocation();
+                if (!locationContains(location, bodyLocation)) {
+                    throw new IllegalStateException("Cannot create lambda token without a body source location inside the lambda in " + file);
+                }
+                Region bodyRegion = bodyLocation.getRegion();
+                newRegion = new Region(region.startLine, region.startColumn, bodyRegion.startLine, bodyRegion.startColumn);
             }
             case AssignExpression _ ->
                     // The left-hand side starts at the assignment's start, leaving no usable prefix.
