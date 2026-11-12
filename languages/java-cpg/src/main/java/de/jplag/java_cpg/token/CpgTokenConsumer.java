@@ -3,7 +3,6 @@ package de.jplag.java_cpg.token;
 import java.io.File;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,8 +87,7 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
                     // As an approximation for the missing values, we use the beginning and end of the child nodes, respectively, which is
                     // not ideal.
                     Region nextTokenRegion = childRegions.getFirst();
-                    newRegion = new Region(region.startLine, region.startColumn, nextTokenRegion.startLine,
-                            IntStream.of(1, nextTokenRegion.startColumn - 1, region.startColumn).max().getAsInt());
+                    newRegion = new Region(region.startLine, region.startColumn, nextTokenRegion.startLine, nextTokenRegion.startColumn);
                 } else {
                     Region previousTokenRegion = childRegions.getLast();
                     newRegion = new Region(previousTokenRegion.getEndLine(), previousTokenRegion.getEndColumn(), region.getEndLine(),

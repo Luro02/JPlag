@@ -54,6 +54,23 @@ class TokenLocationTest {
     }
 
     /**
+     * Prefixes must include complete keywords and stop before the first child, even across line breaks.
+     */
+    @ParameterizedTest
+    @CsvSource({"RETURN, 3, 9, 3, 15", "RETURN, 7, 9, 7, 15", "RETURN, 11, 9, 11, 16", "RETURN, 15, 9, 16, 3", "CASE_STATEMENT, 21, 13, 21, 17"})
+    void prefixTokensStopAtFirstChild(CpgTokenType type, int startLine, int startColumn, int endLine, int endColumn) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "TokenPrefixes.java").toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        Token token = language.parse(Set.of(file.toFile()), false).stream()
+                .filter(candidate -> candidate.getType() == type && candidate.getStartLine() == startLine).findFirst().orElseThrow();
+
+        assertEquals(file.toFile(), token.getFile());
+        assertEquals(startColumn, token.getStartColumn());
+        assertEquals(endLine, token.getEndLine());
+        assertEquals(endColumn, token.getEndColumn());
+    }
+
+    /**
      * Assignments must cover their source expression, and calls must identify the called method.
      */
     @ParameterizedTest
@@ -79,7 +96,7 @@ class TokenLocationTest {
      * Converted loops must point to the original for-loop header and body.
      */
     @ParameterizedTest
-    @CsvSource({"WHILE_STATEMENT, 6, 9, 6, 31", "WHILE_BLOCK_START, 6, 56, 6, 57", "WHILE_BLOCK_END, 9, 9, 9, 10"})
+    @CsvSource({"WHILE_STATEMENT, 6, 9, 6, 32", "WHILE_BLOCK_START, 6, 56, 6, 57", "WHILE_BLOCK_END, 9, 9, 9, 10"})
     void convertedLoopKeepsOriginalSourceLocations(CpgTokenType type, int startLine, int startColumn, int endLine, int endColumn) throws Exception {
         Path file = Path.of("src", "test", "resources", "java", "for2While", "SubmissionA.java").toAbsolutePath();
         var language = new JavaCpgLanguage();
@@ -121,6 +138,6 @@ class TokenLocationTest {
         assertEquals(8, movedField.getStartLine());
         assertEquals(5, movedField.getStartColumn());
         assertEquals(8, movedField.getEndLine());
-        assertEquals(45, movedField.getEndColumn());
+        assertEquals(46, movedField.getEndColumn());
     }
 }
