@@ -15,6 +15,7 @@ import org.jetbrains.annotations.NotNull;
 import de.fraunhofer.aisec.cpg.TranslationResult;
 import de.fraunhofer.aisec.cpg.graph.Component;
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.declarations.EnumDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.MethodDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration;
@@ -130,8 +131,8 @@ public class NodeOrderStrategy implements IStrategy<Node> {
         List<MethodDeclaration> functions = new ArrayList<>();
         functions.addAll(recordDecl.getConstructors());
         functions.addAll(recordDecl.getMethods());
-        return Iterators.concat(recordDecl.getFields().iterator(),
-                functions.stream().filter(m -> !Objects.isNull(m.getBody())).sorted(this::walkMethods).iterator(),
+        return Iterators.concat(recordDecl instanceof EnumDeclaration enumDecl ? enumDecl.getEntries().iterator() : Collections.emptyIterator(),
+                recordDecl.getFields().iterator(), functions.stream().filter(m -> !Objects.isNull(m.getBody())).sorted(this::walkMethods).iterator(),
                 recordDecl.getTemplates().iterator(), recordDecl.getRecords().iterator());
     }
 

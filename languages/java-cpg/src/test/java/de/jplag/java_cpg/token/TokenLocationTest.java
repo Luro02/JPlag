@@ -2,7 +2,9 @@ package de.jplag.java_cpg.token;
 
 import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.CATCH_CLAUSE_END;
+import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_END;
+import static de.jplag.java_cpg.token.CpgTokenType.ENUM_ELEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_END;
@@ -142,6 +144,31 @@ class TokenLocationTest {
                 loopAndCallTokens.stream().map(Token::getType).toList());
         assertEquals(List.of(3, 10, 18, 19), tokens.stream().filter(token -> token.getType() == FOR_BLOCK_BEGIN).map(Token::getStartLine).toList());
         assertEquals(List.of(5, 10, 19, 19), tokens.stream().filter(token -> token.getType() == FOR_BLOCK_END).map(Token::getStartLine).toList());
+    }
+
+    /**
+     * Enum constants must appear in declaration order and point to their names.
+     */
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void enumConstantsKeepLocationsAndDeclarationOrder(boolean normalize) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "DeclarationBoundaries.java").toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        var tokens = language.parse(Set.of(file.toFile()), normalize);
+        var enumTokens = tokens.stream()
+                .filter(token -> token.getType() == ENUM_DECL_BEGIN || token.getType() == ENUM_ELEMENT || token.getType() == ENUM_DECL_END).toList();
+
+        assertEquals(List.of(ENUM_DECL_BEGIN, ENUM_DECL_END, ENUM_DECL_BEGIN, ENUM_ELEMENT, ENUM_ELEMENT, ENUM_DECL_END),
+                enumTokens.stream().map(Token::getType).toList());
+
+        var elements = enumTokens.stream().filter(token -> token.getType() == ENUM_ELEMENT).toList();
+        assertEquals("FIRST", sourceOf(elements.getFirst()));
+        assertEquals("SECOND", sourceOf(elements.getLast()));
+        for (Token element : elements) {
+            assertEquals(file.toFile(), element.getFile());
+            assertEquals(18, element.getStartLine());
+            assertEquals(18, element.getEndLine());
+        }
     }
 
     /**
