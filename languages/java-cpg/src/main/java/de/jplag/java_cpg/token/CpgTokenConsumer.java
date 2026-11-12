@@ -70,7 +70,10 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
             newRegion = new Region(line, column, line, column + 1);
         } else {
 
+            // Moved children retain their source locations, which must not define boundaries in another file.
             List<Region> childRegions = node.getAstChildren().stream().map(Node::getLocation).filter(Objects::nonNull)
+                    .filter(childLocation -> Objects.nonNull(location)
+                            && location.getArtifactLocation().getUri().equals(childLocation.getArtifactLocation().getUri()))
                     .map(PhysicalLocation::getRegion).filter(childRegion -> regionContains(region, childRegion)).sorted().toList();
 
             if (childRegions.isEmpty()) {
