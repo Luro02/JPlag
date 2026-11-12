@@ -32,7 +32,8 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
 
     private static int calculateLength(Region region) {
         if (region.getEndLine() == region.startLine) {
-            return region.getEndColumn() - region.startColumn + 1;
+            // CPG regions use exclusive end columns, just like JPlag tokens.
+            return region.getEndColumn() - region.startColumn;
         } else
             return MULTILINE_TOKEN_LENGTH;
     }
