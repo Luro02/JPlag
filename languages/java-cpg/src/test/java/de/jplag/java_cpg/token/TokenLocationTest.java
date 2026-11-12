@@ -8,6 +8,7 @@ import static de.jplag.java_cpg.token.CpgTokenType.LAMBDA_EXPRESSION;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
+import static de.jplag.java_cpg.token.CpgTokenType.THROW;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -100,6 +101,23 @@ class TokenLocationTest {
             assertEquals(file.toFile(), token.getFile());
             assertEquals("}", sourceOf(token));
         }
+    }
+
+    /**
+     * Throw statements must emit a keyword token with or without an explicit enclosing block.
+     */
+    @ParameterizedTest
+    @CsvSource({"false, IfWithBraces.java", "true, IfWithBraces.java", "false, IfWithoutBraces.java", "true, IfWithoutBraces.java"})
+    void throwTokenPointsToKeyword(boolean normalize, String fixture) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "if", fixture).toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        var throwTokens = language.parse(Set.of(file.toFile()), normalize).stream().filter(token -> token.getType() == THROW).toList();
+
+        assertEquals(1, throwTokens.size());
+        Token token = throwTokens.getFirst();
+        assertEquals(file.toFile(), token.getFile());
+        assertEquals(8, token.getStartLine());
+        assertEquals("throw", sourceOf(token).stripTrailing());
     }
 
     /**

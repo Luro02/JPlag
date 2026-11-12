@@ -349,7 +349,7 @@ public class CpgNodeListener extends ACpgNodeListener {
     }
 
     @Override
-    void visit(UnaryOperator unaryoperator) {
+    public void visit(UnaryOperator unaryoperator) {
 
         String operatorCode = unaryoperator.getOperatorCode();
         if (Objects.isNull(operatorCode))
