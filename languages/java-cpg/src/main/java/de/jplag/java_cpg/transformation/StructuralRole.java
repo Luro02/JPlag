@@ -28,6 +28,7 @@ public enum StructuralRole implements Role {
     FIELD_VALUE("fieldValue"),
     FIELD_TYPE("fieldType"),
     FIRST_CONSTANT_USAGE("firstConstantUsage"),
+    FOR_EACH_STATEMENT("forEachStatement"),
     FOR_STATEMENT("forStatement"),
     GETTER_METHOD_REFERENCE("getMethodReference"),
     IF_STATEMENT("ifStatement"),

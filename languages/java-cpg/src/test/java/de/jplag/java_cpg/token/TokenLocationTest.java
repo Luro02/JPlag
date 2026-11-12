@@ -4,7 +4,11 @@ import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.CATCH_CLAUSE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
+import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_END;
+import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.LAMBDA_EXPRESSION;
+import static de.jplag.java_cpg.token.CpgTokenType.METHOD_CALL;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
@@ -118,6 +122,26 @@ class TokenLocationTest {
         assertEquals(file.toFile(), token.getFile());
         assertEquals(8, token.getStartLine());
         assertEquals("throw", sourceOf(token).stripTrailing());
+    }
+
+    /**
+     * Loop markers must enclose their bodies, not a later standalone block.
+     */
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void enhancedForTokensStayWithTheirBodies(boolean normalize) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "EnhancedFor.java").toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        var tokens = language.parse(Set.of(file.toFile()), normalize);
+        var loopAndCallTokens = tokens.stream().filter(token -> token.getType() == FOR_STATEMENT || token.getType() == FOR_BLOCK_BEGIN
+                || token.getType() == FOR_BLOCK_END || token.getType() == METHOD_CALL).toList();
+
+        assertEquals(
+                List.of(FOR_STATEMENT, FOR_BLOCK_BEGIN, METHOD_CALL, FOR_BLOCK_END, FOR_STATEMENT, FOR_BLOCK_BEGIN, METHOD_CALL, FOR_BLOCK_END,
+                        METHOD_CALL, FOR_STATEMENT, FOR_BLOCK_BEGIN, FOR_STATEMENT, FOR_BLOCK_BEGIN, METHOD_CALL, FOR_BLOCK_END, FOR_BLOCK_END),
+                loopAndCallTokens.stream().map(Token::getType).toList());
+        assertEquals(List.of(3, 10, 18, 19), tokens.stream().filter(token -> token.getType() == FOR_BLOCK_BEGIN).map(Token::getStartLine).toList());
+        assertEquals(List.of(5, 10, 19, 19), tokens.stream().filter(token -> token.getType() == FOR_BLOCK_END).map(Token::getStartLine).toList());
     }
 
     /**

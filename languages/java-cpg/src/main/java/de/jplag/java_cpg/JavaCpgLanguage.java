@@ -18,6 +18,7 @@ import static de.jplag.java_cpg.transformation.TransformationRepository.removeUn
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeUnsupportedMethod;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapDoStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapElseStatement;
+import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForEachStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapThenStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapWhileStatement;
@@ -110,7 +111,8 @@ public class JavaCpgLanguage implements Language {
      * @return the array of obligatory transformations
      */
     private GraphTransformation[] obligatoryTransformations() {
-        return new GraphTransformation[] {wrapThenStatement, wrapElseStatement, wrapForStatement, wrapWhileStatement, wrapDoStatement};
+        return new GraphTransformation[] {wrapThenStatement, wrapElseStatement, wrapForStatement, wrapForEachStatement, wrapWhileStatement,
+                wrapDoStatement};
     }
 
     /**

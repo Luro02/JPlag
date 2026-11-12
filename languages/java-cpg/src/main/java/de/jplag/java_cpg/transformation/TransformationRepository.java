@@ -24,6 +24,7 @@ import static de.jplag.java_cpg.transformation.StructuralRole.FIELD_DECLARATION;
 import static de.jplag.java_cpg.transformation.StructuralRole.FIELD_USAGE;
 import static de.jplag.java_cpg.transformation.StructuralRole.FIELD_VALUE;
 import static de.jplag.java_cpg.transformation.StructuralRole.FIRST_CONSTANT_USAGE;
+import static de.jplag.java_cpg.transformation.StructuralRole.FOR_EACH_STATEMENT;
 import static de.jplag.java_cpg.transformation.StructuralRole.FOR_STATEMENT;
 import static de.jplag.java_cpg.transformation.StructuralRole.GETTER_METHOD_REFERENCE;
 import static de.jplag.java_cpg.transformation.StructuralRole.IF_STATEMENT;
@@ -57,6 +58,7 @@ import static de.jplag.java_cpg.transformation.matching.edges.Edges.CALL_EXPRESS
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.DECLARATION_STATEMENT__DECLARATIONS;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.DO_STATEMENT__STATEMENT;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.FIELD_DECLARATION__MODIFIERS;
+import static de.jplag.java_cpg.transformation.matching.edges.Edges.FOR_EACH_STATEMENT__STATEMENT;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.FOR_STATEMENT__CONDITION;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.FOR_STATEMENT__INITIALIZER_STATEMENT;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.FOR_STATEMENT__ITERATION_STATEMENT;
@@ -113,6 +115,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.statements.DeclarationStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.EmptyStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
@@ -215,6 +218,10 @@ public class TransformationRepository {
      * Constant <code>wrapElseStatement</code>.
      */
     public static final GraphTransformation wrapElseStatement = wrapElseStatement();
+    /**
+     * Constant <code>wrapForEachStatement</code>.
+     */
+    public static final GraphTransformation wrapForEachStatement = wrapForEachStatement();
     /**
      * Constant <code>wrapForStatement</code>.
      */
@@ -681,6 +688,14 @@ public class TransformationRepository {
      */
     private static GraphTransformation wrapElseStatement() {
         return wrapInBlock(IfStatement.class, IF_STATEMENT, IF_STATEMENT__ELSE_STATEMENT, "wrapElseStatement");
+    }
+
+    /**
+     * Wraps a {@link ForEachStatement} body in a {@link Block} so tokenization can emit its boundaries.
+     * @return the graph transformation
+     */
+    private static GraphTransformation wrapForEachStatement() {
+        return wrapInBlock(ForEachStatement.class, FOR_EACH_STATEMENT, FOR_EACH_STATEMENT__STATEMENT, "wrapForEachStatement");
     }
 
     /**

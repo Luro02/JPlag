@@ -287,7 +287,7 @@ public class CpgNodeListener extends ACpgNodeListener {
     @Override
     public void visit(ForEachStatement forEachStatement) {
         tokenConsumer.addToken(FOR_STATEMENT, forEachStatement, false);
-        expect(FOR_STATEMENT, FOR_BLOCK_END);
+        expect(FOR_BLOCK_BEGIN, FOR_BLOCK_END);
     }
 
     @Override

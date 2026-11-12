@@ -25,6 +25,7 @@ import de.fraunhofer.aisec.cpg.graph.scopes.LoopScope;
 import de.fraunhofer.aisec.cpg.graph.scopes.TryScope;
 import de.fraunhofer.aisec.cpg.graph.scopes.ValueDeclarationScope;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.Statement;
@@ -75,6 +76,8 @@ public class NodeOrderStrategy implements IStrategy<Node> {
             return walkIfStatement(ifStatement);
         } else if (node instanceof ForStatement forStatement) {
             return walkForStatement(forStatement);
+        } else if (node instanceof ForEachStatement forEachStatement) {
+            return Stream.<Node>of(forEachStatement.getStatement()).filter(Objects::nonNull).iterator();
         } else if (node instanceof Block block) {
             return walkBlock(block);
         } else if (node.getScope() instanceof BlockScope || node.getScope() instanceof LoopScope || node.getScope() instanceof TryScope

@@ -25,6 +25,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.ValueDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.statements.DeclarationStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
@@ -123,6 +124,11 @@ public class Edges {
      */
     public static final CpgAttributeEdge<FieldDeclaration, List<String>> FIELD_DECLARATION__MODIFIERS = new CpgAttributeEdge<>(
             FieldDeclaration::getModifiers, FieldDeclaration::setModifiers);
+    /**
+     * An edge from a for-each statement to its body.
+     */
+    public static final CpgEdge<ForEachStatement, Statement> FOR_EACH_STATEMENT__STATEMENT = new CpgEdge<>(ForEachStatement::getStatement,
+            ForEachStatement::setStatement);
     /**
      * An edge from a for statement to its condition.
      */
@@ -339,6 +345,7 @@ public class Edges {
         register(DECLARATION_STATEMENT__DECLARATIONS, DeclarationStatement.class, Declaration.class);
         register(DO_STATEMENT__CONDITION, DoStatement.class, Expression.class);
         register(DO_STATEMENT__STATEMENT, DoStatement.class, Statement.class);
+        register(FOR_EACH_STATEMENT__STATEMENT, ForEachStatement.class, Statement.class);
         register(FOR_STATEMENT__CONDITION, ForStatement.class, Expression.class);
         register(FOR_STATEMENT__INITIALIZER_STATEMENT, ForStatement.class, Statement.class);
         register(FOR_STATEMENT__ITERATION_STATEMENT, ForStatement.class, Statement.class);
