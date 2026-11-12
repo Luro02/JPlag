@@ -2,8 +2,10 @@ package de.jplag.java_cpg.token;
 
 import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.CATCH_CLAUSE_END;
+import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
 import static de.jplag.java_cpg.token.CpgTokenType.LAMBDA_EXPRESSION;
+import static de.jplag.java_cpg.token.CpgTokenType.METHOD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
@@ -79,6 +81,25 @@ class TokenLocationTest {
         assertEquals(startColumn, token.getStartColumn());
         assertEquals(endLine, token.getEndLine());
         assertEquals(endColumn, token.getEndColumn());
+    }
+
+    /**
+     * Closing tokens must stay on the brace, even for empty declarations or after removing the final member.
+     */
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void declarationEndTokensPointToClosingBraces(boolean normalize) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java", "DeclarationBoundaries.java").toAbsolutePath();
+        var language = new JavaCpgLanguage();
+        var tokens = language.parse(Set.of(file.toFile()), normalize);
+        var endings = tokens.stream().filter(token -> token.getType() == RECORD_DECL_END || token.getType() == ENUM_DECL_END).toList();
+
+        assertEquals(normalize ? 1 : 2, tokens.stream().filter(token -> token.getType() == METHOD_DECL_BEGIN).count());
+        assertEquals(4, endings.size());
+        for (Token token : endings) {
+            assertEquals(file.toFile(), token.getFile());
+            assertEquals("}", sourceOf(token));
+        }
     }
 
     /**
@@ -188,8 +209,8 @@ class TokenLocationTest {
         Token classEnd = tokens.stream().filter(token -> token.getType() == RECORD_DECL_END && token.getFile().equals(usage.toFile())).findFirst()
                 .orElseThrow();
 
-        assertEquals(14, classEnd.getStartLine());
-        assertEquals(6, classEnd.getStartColumn());
+        assertEquals(17, classEnd.getStartLine());
+        assertEquals(1, classEnd.getStartColumn());
         assertEquals(17, classEnd.getEndLine());
         assertEquals(2, classEnd.getEndColumn());
 
