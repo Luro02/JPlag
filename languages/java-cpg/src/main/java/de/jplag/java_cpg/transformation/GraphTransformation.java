@@ -1,7 +1,9 @@
 package de.jplag.java_cpg.transformation;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import org.jetbrains.annotations.NotNull;
@@ -186,6 +188,7 @@ public interface GraphTransformation {
         private final GraphPattern targetPattern;
         private final String name;
         private final ExecutionPhase phase;
+        private final Map<Role, Role> sourceLocationRoles = new HashMap<>();
         private ExecutionOrder executionOrder;
 
         private Builder(GraphPattern sourcePattern, GraphPattern targetPattern, String transformationName, ExecutionPhase phase) {
@@ -222,6 +225,17 @@ public interface GraphTransformation {
          */
         public static Builder from(MultiGraphPattern sourcePattern, MultiGraphPattern targetPattern, String name, ExecutionPhase phase) {
             return new Builder(sourcePattern, targetPattern, name, phase);
+        }
+
+        /**
+         * Uses an original node's source location for a newly created node.
+         * @param targetRole the new node's role
+         * @param sourceRole the original node's role
+         * @return this builder
+         */
+        Builder setSourceLocation(Role targetRole, Role sourceRole) {
+            sourceLocationRoles.put(targetRole, sourceRole);
+            return this;
         }
 
         /**
@@ -309,7 +323,8 @@ public interface GraphTransformation {
                 NodePattern<?> newPattern = sourcePattern.addNode(role, targetPattern.getPattern(role));
 
                 // new nodes needed for the transformation application
-                CreateNodeOperation<?> createNodeOperation = new CreateNodeOperation<>(sourcePattern, role, newPattern);
+                CreateNodeOperation<?> createNodeOperation = new CreateNodeOperation<>(sourcePattern, role, newPattern,
+                        sourceLocationRoles.get(role));
                 newNodes.add(createNodeOperation);
             }
             return newNodes;

@@ -31,9 +31,11 @@ import de.jplag.java_cpg.transformation.matching.pattern.PatternUtil;
  * @param sourceGraph the graph
  * @param role the role of the new {@link Node}
  * @param pattern the {@link NodePattern} representing the new {@link Node}
+ * @param sourceLocationRole the original node whose location is inherited, or null if none is specified
  * @param <N> the new {@link Node}'s type
  */
-public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role role, NodePattern<N> pattern) implements GraphOperation {
+public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role role, NodePattern<N> pattern, Role sourceLocationRole)
+        implements GraphOperation {
 
     private static final List<Class<? extends Node>> scopedNodeClasses = List.of(Block.class, WhileStatement.class, DoStatement.class,
             AssertStatement.class, ForStatement.class, ForEachStatement.class, SwitchStatement.class, FunctionDeclaration.class, IfStatement.class,
@@ -42,6 +44,9 @@ public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role
     @Override
     public void resolveAndApply(Match match, TranslationContext ctx, GraphMutationContext mutationContext) {
         N newNode = PatternUtil.instantiate(pattern);
+        if (sourceLocationRole != null) {
+            newNode.setLocation(match.get(sourceGraph.getPattern(sourceLocationRole)).getLocation());
+        }
         match.register(pattern, newNode);
 
         if (scopedNodeClasses.contains(newNode.getClass())) {
