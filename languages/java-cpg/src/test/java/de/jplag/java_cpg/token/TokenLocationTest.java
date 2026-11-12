@@ -7,14 +7,21 @@ import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
+import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
+import de.fraunhofer.aisec.cpg.sarif.Region;
 import de.jplag.Token;
 import de.jplag.java_cpg.JavaCpgLanguage;
 
@@ -25,6 +32,48 @@ class TokenLocationTest {
     private static final Path BASE_PATH = Path
             .of("src", "test", "resources", "java", "constantClass", "SubmissionA", "edu", "kit", "kastel", "sdq", "jplag", "example")
             .toAbsolutePath();
+
+    /**
+     * Missing locations must not silently produce invalid tokens.
+     */
+    @Test
+    void missingSourceLocationIsRejected() {
+        var nodes = List.<Node>of(new AssignExpression()).iterator();
+        assertThrows(IllegalStateException.class, () -> CpgNodeListener.tokenIterator(nodes).next());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-1, -1, -1, -1", "1, 1, 1, 1", "2, 1, 1, 2"})
+    void invalidSourceRegionIsRejected(int startLine, int startColumn, int endLine, int endColumn) {
+        var assignment = new AssignExpression();
+        Path file = Path.of("src", "test", "resources", "java", "GetterSetter.java").toAbsolutePath();
+        assignment.setLocation(new PhysicalLocation(file.toUri(), new Region(startLine, startColumn, endLine, endColumn)));
+        var nodes = List.<Node>of(assignment).iterator();
+
+        assertThrows(IllegalStateException.class, () -> CpgNodeListener.tokenIterator(nodes).next());
+    }
+
+    /**
+     * Assignments must cover their source expression, and calls must identify the called method.
+     */
+    @ParameterizedTest
+    @CsvSource({"GetterSetter.java, ASSIGNMENT, 12, this.instance = instance;", "UnusedVariableDeclaration.java, ASSIGNMENT, 7, product += factor1;",
+            "VariableDeclaration.java, METHOD_CALL, 6, println"})
+    void expressionTokensIdentifyTheirSource(String fixture, CpgTokenType type, int line, String expectedSource) throws Exception {
+        Path file = Path.of("src", "test", "resources", "java").resolve(fixture).toAbsolutePath();
+        String sourceLine = Files.readAllLines(file).get(line - 1);
+        var language = new JavaCpgLanguage();
+
+        for (boolean normalize : List.of(false, true)) {
+            Token token = language.parse(Set.of(file.toFile()), normalize).stream().filter(candidate -> candidate.getType() == type).findFirst()
+                    .orElseThrow();
+
+            assertEquals(file.toFile(), token.getFile());
+            assertEquals(line, token.getStartLine());
+            assertEquals(line, token.getEndLine());
+            assertEquals(expectedSource, sourceLine.substring(token.getStartColumn() - 1, token.getEndColumn() - 1));
+        }
+    }
 
     /**
      * Converted loops must point to the original for-loop header and body.

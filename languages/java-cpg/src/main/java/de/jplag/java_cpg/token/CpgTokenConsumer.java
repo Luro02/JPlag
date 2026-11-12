@@ -11,7 +11,9 @@ import org.slf4j.LoggerFactory;
 import de.fraunhofer.aisec.cpg.graph.Name;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
 import de.fraunhofer.aisec.cpg.sarif.Region;
 import de.jplag.Token;
@@ -28,7 +30,6 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
      * length of any sensible line of code.
      */
     private static final int MULTILINE_TOKEN_LENGTH = 1024;
-    private File currentFile;
 
     private static int calculateLength(Region region) {
         if (region.getEndLine() == region.startLine) {
@@ -48,52 +49,68 @@ public abstract class CpgTokenConsumer implements TokenConsumer {
         logger.debug("{} / {}", type, node);
         PhysicalLocation location = node.getLocation();
 
-        File file;
-        Region region;
-        if (Objects.nonNull(location)) {
-            file = new File(location.getArtifactLocation().getUri());
-            region = location.getRegion();
-            currentFile = file;
-        } else if (node instanceof Declaration) {
-            // implicit node, e.g., declaration of API classes - we do not want tokens for those.
-            return;
-        } else {
-            // nodes created and _inserted_ during transformations (new nodes which _replace_ others get their location)
-            file = currentFile;
-            region = new Region();
+        if (Objects.isNull(location)) {
+            if (node instanceof Declaration) {
+                // implicit node, e.g., declaration of API classes - we do not want tokens for those.
+                return;
+            }
+
+            throw new IllegalStateException(
+                    "Cannot create %s token for %s without a source location.".formatted(type, node.getClass().getSimpleName()));
         }
+        File file = new File(location.getArtifactLocation().getUri());
+        Region region = location.getRegion();
 
         Region newRegion;
-        if (node instanceof Block) {
-            int line = isEndToken ? region.getEndLine() : region.startLine;
-            int column = isEndToken ? region.getEndColumn() - 1 : region.startColumn;
-            newRegion = new Region(line, column, line, column + 1);
-        } else {
-
-            // Moved children retain their source locations, which must not define boundaries in another file.
-            List<Region> childRegions = node.getAstChildren().stream().map(Node::getLocation).filter(Objects::nonNull)
-                    .filter(childLocation -> Objects.nonNull(location)
-                            && location.getArtifactLocation().getUri().equals(childLocation.getArtifactLocation().getUri()))
-                    .map(PhysicalLocation::getRegion).filter(childRegion -> regionContains(region, childRegion)).sorted().toList();
-
-            if (childRegions.isEmpty()) {
-                newRegion = region;
-            } else if (!isEndToken) {
-                // location encompasses the whole node AND all child nodes, not the syntactic element that represents the node.
-                // As an approximation for the missing values, we use the beginning and end of the child nodes, respectively, which is
-                // not ideal.
-                Region nextTokenRegion = childRegions.getFirst();
-                newRegion = new Region(region.startLine, region.startColumn, nextTokenRegion.startLine,
-                        IntStream.of(1, nextTokenRegion.startColumn - 1, region.startColumn).max().getAsInt());
-            } else {
-                Region previousTokenRegion = childRegions.getLast();
-                newRegion = new Region(previousTokenRegion.getEndLine(), previousTokenRegion.getEndColumn(), region.getEndLine(),
-                        region.getEndColumn());
+        switch (node) {
+            case Block _ -> {
+                int line = isEndToken ? region.getEndLine() : region.startLine;
+                int column = isEndToken ? region.getEndColumn() - 1 : region.startColumn;
+                newRegion = new Region(line, column, line, column + 1);
             }
+            case AssignExpression _ ->
+                    // The left-hand side starts at the assignment's start, leaving no usable prefix.
+                    newRegion = region;
+            case CallExpression call -> {
+                PhysicalLocation calleeLocation = call.getCallee() == null ? null : call.getCallee().getLocation();
+                newRegion = locationContains(location, calleeLocation) ? calleeLocation.getRegion() : region;
+            }
+            default -> {
+
+                // Moved children retain their source locations, which must not define boundaries in another file.
+                List<Region> childRegions = node.getAstChildren().stream().map(Node::getLocation)
+                        .filter(childLocation -> locationContains(location, childLocation)).map(PhysicalLocation::getRegion).sorted().toList();
+
+                if (childRegions.isEmpty()) {
+                    newRegion = region;
+                } else if (!isEndToken) {
+                    // location encompasses the whole node AND all child nodes, not the syntactic element that represents the node.
+                    // As an approximation for the missing values, we use the beginning and end of the child nodes, respectively, which is
+                    // not ideal.
+                    Region nextTokenRegion = childRegions.getFirst();
+                    newRegion = new Region(region.startLine, region.startColumn, nextTokenRegion.startLine,
+                            IntStream.of(1, nextTokenRegion.startColumn - 1, region.startColumn).max().getAsInt());
+                } else {
+                    Region previousTokenRegion = childRegions.getLast();
+                    newRegion = new Region(previousTokenRegion.getEndLine(), previousTokenRegion.getEndColumn(), region.getEndLine(),
+                            region.getEndColumn());
+                }
+            }
+        }
+
+        if (newRegion.startLine < 1 || newRegion.startColumn < 1 || newRegion.getEndLine() < 1 || newRegion.getEndColumn() < 1
+                || newRegion.startLine > newRegion.getEndLine()
+                || newRegion.startLine == newRegion.getEndLine() && newRegion.startColumn >= newRegion.getEndColumn()) {
+            throw new IllegalStateException("Invalid source region %s for %s token in %s.".formatted(newRegion, type, file));
         }
 
         Name name = node.getName();
         addToken(type, file, newRegion, calculateLength(newRegion), name);
+    }
+
+    private boolean locationContains(PhysicalLocation outer, PhysicalLocation inner) {
+        return outer != null && inner != null && outer.getArtifactLocation().getUri().equals(inner.getArtifactLocation().getUri())
+                && regionContains(outer.getRegion(), inner.getRegion());
     }
 
     private boolean regionContains(Region outer, Region inner) {
