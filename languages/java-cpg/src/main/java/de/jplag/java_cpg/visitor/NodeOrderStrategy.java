@@ -58,7 +58,8 @@ public class NodeOrderStrategy implements IStrategy<Node> {
     }
 
     @Override
-    public @NotNull Iterator<Node> getIterator(Node node) {
+    @NotNull
+    public Iterator<Node> getIterator(Node node) {
         return switch (node) {
             case TranslationResult translationResult -> {
                 this.methodOrder = new MethodOrderStrategy().setupMethodCallGraphOrder(translationResult);
@@ -91,28 +92,22 @@ public class NodeOrderStrategy implements IStrategy<Node> {
         return Stream.<Node>ofNullable(statement).iterator();
     }
 
-    private Iterator<Node> walkTranslationUnit(TranslationUnitDeclaration tu) {
-        return getTopLevelRecords(tu).stream()
-            .<Node>map(record -> record)
-            .iterator();
+    private static Iterator<Node> walkTranslationUnit(TranslationUnitDeclaration tu) {
+        return getTopLevelRecords(tu).stream().<Node>map(record -> record).iterator();
     }
 
-    private Iterator<Node> walkComponent(Component component) {
+    private static Iterator<Node> walkComponent(Component component) {
         var files = component.getTranslationUnits().stream()
-            .collect(Collectors.partitioningBy(tu ->
-                getTopLevelRecords(tu).stream()
-                    .anyMatch(NodeOrderStrategy::isMainClass)));
+                .collect(Collectors.partitioningBy(tu -> getTopLevelRecords(tu).stream().anyMatch(NodeOrderStrategy::isMainClass)));
 
-        return Iterators.concat(
-            files.get(true).iterator(),
-            files.get(false).iterator());
+        return Iterators.concat(files.get(true).iterator(), files.get(false).iterator());
     }
 
     private static boolean isMainClass(RecordDeclaration recordDeclaration) {
         return recordDeclaration.getMethods().stream().anyMatch(NodeOrderStrategy::isMainMethod);
     }
 
-    private List<RecordDeclaration> getTopLevelRecords(Node node) {
+    private static List<RecordDeclaration> getTopLevelRecords(Node node) {
         List<RecordDeclaration> result = new ArrayList<>();
         Deque<Node> declarations = new ArrayDeque<>(List.of(node));
         while (!declarations.isEmpty()) {
@@ -127,28 +122,22 @@ public class NodeOrderStrategy implements IStrategy<Node> {
                 }
                 default -> List.of();
             };
-            children.stream().filter(Objects::nonNull).forEach(declarations::addLast);
 
+            for (Node child : children) {
+                if (child != null) {
+                    declarations.addLast(child);
+                }
+            }
         }
         return result;
     }
 
     private Iterator<Node> walkRecord(RecordDeclaration recordDecl) {
-        var methods = Stream.concat(
-                recordDecl.getConstructors().stream(),
-                recordDecl.getMethods().stream())
-            .filter(MethodDeclaration::hasBody)
-            .sorted(methodComparator())
-            .iterator();
+        var methods = Stream.concat(recordDecl.getConstructors().stream(), recordDecl.getMethods().stream()).filter(MethodDeclaration::hasBody)
+                .sorted(methodComparator()).iterator();
 
-        return Iterators.concat(
-            recordDecl instanceof EnumDeclaration enumDecl
-                ? enumDecl.getEntries().iterator()
-                : Collections.emptyIterator(),
-            recordDecl.getFields().iterator(),
-            methods,
-            recordDecl.getTemplates().iterator(),
-            recordDecl.getRecords().iterator());
+        return Iterators.concat(recordDecl instanceof EnumDeclaration enumDecl ? enumDecl.getEntries().iterator() : Collections.emptyIterator(),
+                recordDecl.getFields().iterator(), methods, recordDecl.getTemplates().iterator(), recordDecl.getRecords().iterator());
     }
 
     static boolean isMainMethod(FunctionDeclaration function) {
