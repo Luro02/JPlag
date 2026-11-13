@@ -31,6 +31,7 @@ import static de.jplag.java_cpg.token.CpgTokenType.TRY_BLOCK_START;
 import static de.jplag.java_cpg.token.CpgTokenType.TRY_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.VARIABLE_DECL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 import java.nio.file.Files;
@@ -106,7 +107,9 @@ class TokenTraversalTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("controlFlowCases")
     void controlFlowTokensAreOrdered(String description, int declarationLine, List<TokenType> expected) throws Exception {
-        assertEquals(expected, controlFlowMethod(declarationLine));
+        for (boolean normalize : List.of(false, true)) {
+            assertEquals(expected, controlFlowMethod(declarationLine, normalize).stream().map(Token::getType).toList(), "normalize=" + normalize);
+        }
     }
 
     /**
@@ -133,10 +136,44 @@ class TokenTraversalTest {
         assertEquals(List.of(33, 35), markers.stream().map(Token::getStartLine).toList());
     }
 
-    private static List<TokenType> controlFlowMethod(int declarationLine) throws Exception {
-        return parse("ControlFlow.java").stream().dropWhile(token -> token.getType() != METHOD_DECL_BEGIN || token.getStartLine() != declarationLine)
-                .skip(1).takeWhile(token -> token.getType() != METHOD_DECL_BEGIN && token.getType() != RECORD_DECL_END).map(Token::getType)
-                .filter(type -> type != METHOD_PARAM && type != METHOD_BODY_BEGIN && type != METHOD_BODY_END).toList();
+    /**
+     * Sorting must not detach statements from their case labels or change fallthrough order.
+     */
+    @Test
+    void normalizedSwitchKeepsFallthroughOrder() throws Exception {
+        var plain = controlFlowMethod(41, false);
+        var normalized = controlFlowMethod(41, true);
+
+        assertFalse(plain.isEmpty());
+        assertEquals(plain.stream().map(Token::getType).toList(), normalized.stream().map(Token::getType).toList());
+        assertEquals(plain.stream().map(Token::getStartLine).toList(), normalized.stream().map(Token::getStartLine).toList());
+    }
+
+    @Test
+    void normalizationKeepsEmptySynchronizedBlock() throws Exception {
+        assertEquals(List.of(SYNCHRONIZED_STATEMENT, SYNCHRONIZED_BLOCK_START, SYNCHRONIZED_BLOCK_END),
+                controlFlowMethod(55, true).stream().map(Token::getType).toList());
+    }
+
+    @Test
+    void normalizationKeepsNestedControlFlow() throws Exception {
+        var plain = controlFlowMethod(86, false);
+        var normalized = controlFlowMethod(86, true);
+
+        assertFalse(plain.isEmpty());
+        assertEquals(plain.stream().map(Token::getType).toList(), normalized.stream().map(Token::getType).toList());
+        assertEquals(plain.stream().map(Token::getStartLine).toList(), normalized.stream().map(Token::getStartLine).toList());
+    }
+
+    private static List<Token> controlFlowMethod(int declarationLine, boolean normalize) throws Exception {
+        return methodTokens(parse("ControlFlow.java", normalize), declarationLine);
+    }
+
+    private static List<Token> methodTokens(List<Token> tokens, int declarationLine) {
+        return tokens.stream().dropWhile(token -> token.getType() != METHOD_DECL_BEGIN || token.getStartLine() != declarationLine).skip(1)
+                .takeWhile(token -> token.getType() != METHOD_DECL_BEGIN && token.getType() != RECORD_DECL_END)
+                .filter(token -> token.getType() != METHOD_PARAM && token.getType() != METHOD_BODY_BEGIN && token.getType() != METHOD_BODY_END)
+                .toList();
     }
 
     private static List<Token> parse(String fixture) throws Exception {

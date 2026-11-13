@@ -204,7 +204,13 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             // map to movable statements that contain these value definitions
             val dependentStatements = valueDependencies.flatMap { dfgPredecessor ->
                 when (dfgPredecessor) {
-                    is ParameterDeclaration, is AssignExpression -> listOf(dfgPredecessor)
+                    is ParameterDeclaration -> listOf(dfgPredecessor)
+                    is AssignExpression -> {
+                        // Inner assignments cannot move independently of an opaque statement.
+                        val owner = referenceParentStatement[dfgPredecessor]
+                        listOf(if (owner is SwitchStatement || owner is SynchronizedStatement) owner else dfgPredecessor)
+                    }
+
                     is FieldDeclaration -> listOf()
                     else -> listOfNotNull(referenceParentStatement[dfgPredecessor])
                     // but no self-dependencies
@@ -519,6 +525,12 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         */
 
         when (node) {
+            is SwitchStatement, is SynchronizedStatement -> {
+                // Keep these opaque: sorting across case labels or monitor boundaries is unsafe.
+                essentialNodes.add(node)
+                return true
+            }
+
             // Block, ForEachStatement
             is StatementHolder -> {
                 val essentialChildren = node.statements
