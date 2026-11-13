@@ -188,7 +188,7 @@ class TokenLocationTest {
     }
 
     /**
-     * Traversal currently skips catch clauses, so exercise their closing token directly.
+     * Catch closing tokens must cover only the closing brace.
      */
     @Test
     void catchEndTokenPointsToClosingBrace() throws Exception {

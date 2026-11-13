@@ -6,11 +6,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -25,19 +24,21 @@ import de.fraunhofer.aisec.cpg.graph.declarations.MethodDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration;
-import de.fraunhofer.aisec.cpg.graph.scopes.ValueDeclarationScope;
+import de.fraunhofer.aisec.cpg.graph.statements.CatchClause;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.Statement;
+import de.fraunhofer.aisec.cpg.graph.statements.SwitchStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.SynchronizedStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.TryStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.WhileStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.fraunhofer.aisec.cpg.processing.IStrategy;
 import de.fraunhofer.aisec.cpg.processing.strategy.Strategy;
-
-import de.jplag.java_cpg.transformation.operations.TransformationUtil;
 
 import com.google.common.collect.Iterators;
 import kotlin.Unit;
@@ -68,28 +69,63 @@ public class NodeOrderStrategy implements IStrategy<Node> {
             case Component c -> walkComponent(c);
             case TranslationUnitDeclaration tu -> walkTranslationUnit(tu);
             case RecordDeclaration recordDecl -> walkRecord(recordDecl);
-            case MethodDeclaration methodDecl -> Iterators.concat(
-                methodDecl.getParameters().iterator(),
-                Stream.<Node>ofNullable(methodDecl.getBody()).iterator());
-            // Condition is visited already at this point
-            case WhileStatement whileStatement -> optionalNode(whileStatement.getStatement());
-            // Condition is visited already at this point
-            case DoStatement doStatement -> optionalNode(doStatement.getStatement());
-            // Condition is visited already at this point
-            case ForStatement forStatement -> optionalNode(forStatement.getStatement());
-            // Condition is visited already at this point
-            case ForEachStatement forEachStatement -> optionalNode(forEachStatement.getStatement());
-            // Condition is already visited at this point
-            case IfStatement ifStatement ->
-                Stream.<Node>of(ifStatement.getThenStatement(), ifStatement.getElseStatement()).filter(Objects::nonNull).iterator();
-            case Block block -> block.getStatements().stream().map(TransformationUtil::getEntry).iterator();
-            case Node nodeT when nodeT.getScope() instanceof ValueDeclarationScope -> Strategy.INSTANCE.EOG_FORWARD(node);
+            case MethodDeclaration methodDecl -> Iterators.concat(methodDecl.getParameters().iterator(),
+                    Stream.<Node>ofNullable(methodDecl.getBody()).iterator());
+            case WhileStatement whileStatement -> children(whileStatement.getConditionDeclaration(), whileStatement.getCondition(),
+                    whileStatement.getStatement());
+            case DoStatement doStatement -> children(doStatement.getStatement(), doStatement.getCondition());
+            case ForStatement forStatement -> children(forStatement.getInitializerStatement(), forStatement.getConditionDeclaration(),
+                    forStatement.getCondition(), forStatement.getIterationStatement(), forStatement.getStatement());
+            case ForEachStatement forEachStatement -> children(forEachStatement.getVariable(), forEachStatement.getIterable(),
+                    forEachStatement.getStatement());
+            case IfStatement ifStatement -> children(ifStatement.getInitializerStatement(), ifStatement.getConditionDeclaration(),
+                    ifStatement.getCondition(), ifStatement.getThenStatement(), ifStatement.getElseStatement());
+            case SwitchStatement switchStatement -> children(switchStatement.getInitializerStatement(), switchStatement.getSelectorDeclaration(),
+                    switchStatement.getSelector(), switchStatement.getStatement());
+            case SynchronizedStatement synchronizedStatement -> children(synchronizedStatement.getExpression(), synchronizedStatement.getBlock());
+            case TryStatement tryStatement -> Iterators.concat(tryStatement.getResources().iterator(), children(tryStatement.getTryBlock()),
+                    tryStatement.getCatchClauses().iterator(), children(tryStatement.getFinallyBlock()));
+            case CatchClause catchClause -> children(catchClause.getParameter(), catchClause.getBody());
+            case Block block -> block.getStatements().stream().<Node>map(statement -> statement).iterator();
+            case CallExpression call -> Iterators.concat(children(call.getCallee()), call.getArguments().iterator());
             default -> Strategy.INSTANCE.AST_FORWARD(node);
         };
     }
 
-    private static Iterator<Node> optionalNode(Statement statement) {
-        return Stream.<Node>ofNullable(statement).iterator();
+    private static Iterator<Node> children(Node... nodes) {
+        return Stream.of(nodes).filter(Objects::nonNull).iterator();
+    }
+
+    /**
+     * Traverses structural children, visiting calls after their receiver and arguments.
+     * @param root the traversal root
+     * @param onVisit the node visitor
+     * @param onExit the node exit handler
+     */
+    public void walk(Node root, Consumer<? super Node> onVisit, Consumer<? super Node> onExit) {
+        Deque<Node> stack = new ArrayDeque<>();
+        Consumer<Node> exit = node -> {
+            if (node instanceof CallExpression) {
+                onVisit.accept(node);
+            }
+            onExit.accept(node);
+        };
+        SubgraphWalker.IterativeGraphWalker walker = new SubgraphWalker.IterativeGraphWalker();
+        walker.setStrategy(this::getIterator);
+        walker.registerOnNodeVisit((node, parent) -> {
+            while (!stack.isEmpty() && stack.peek() != parent) {
+                exit.accept(stack.pop());
+            }
+            if (!(node instanceof CallExpression)) {
+                onVisit.accept(node);
+            }
+            stack.push(node);
+            return Unit.INSTANCE;
+        });
+        walker.iterate(root);
+        while (!stack.isEmpty()) {
+            exit.accept(stack.pop());
+        }
     }
 
     private static Iterator<Node> walkTranslationUnit(TranslationUnitDeclaration tu) {
@@ -152,18 +188,9 @@ public class NodeOrderStrategy implements IStrategy<Node> {
      * @return a list of all child nodes
      */
     public static List<Node> flattenStatement(Statement statement) {
-        Set<Node> astChildren = new HashSet<>(SubgraphWalker.INSTANCE.flattenAST(statement));
-        IStrategy<Node> strategy = new NodeOrderStrategy();
-        Node entry = TransformationUtil.getEntry(statement);
-
-        List<Node> nodes = new ArrayList<>(astChildren.size());
-        SubgraphWalker.IterativeGraphWalker walker = new SubgraphWalker.IterativeGraphWalker();
-        walker.setStrategy(node -> Iterators.filter(strategy.getIterator(node), astChildren::contains));
-        walker.registerOnNodeVisit((node, _) -> {
-            nodes.add(node);
-            return Unit.INSTANCE;
+        List<Node> nodes = new ArrayList<>();
+        new NodeOrderStrategy().walk(statement, nodes::add, node -> {
         });
-        walker.iterate(entry);
         return nodes;
     }
 

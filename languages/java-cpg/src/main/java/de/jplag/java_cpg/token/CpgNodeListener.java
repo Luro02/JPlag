@@ -3,7 +3,6 @@ package de.jplag.java_cpg.token;
 import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.ASSERT_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.ASSIGNMENT;
-import static de.jplag.java_cpg.token.CpgTokenType.BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.BREAK;
 import static de.jplag.java_cpg.token.CpgTokenType.CASE_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.CATCH_CLAUSE_BEGIN;
@@ -20,6 +19,8 @@ import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_END;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_ELEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
+import static de.jplag.java_cpg.token.CpgTokenType.FINALLY_CLAUSE_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.FINALLY_CLAUSE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
@@ -54,8 +55,9 @@ import static de.jplag.java_cpg.token.CpgTokenType.WHILE_BLOCK_START;
 import static de.jplag.java_cpg.token.CpgTokenType.WHILE_STATEMENT;
 
 import java.io.File;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
-import java.util.LinkedList;
+import java.util.Map;
 import java.util.Objects;
 
 import de.fraunhofer.aisec.cpg.graph.Name;
@@ -105,8 +107,7 @@ import de.jplag.TokenType;
 public class CpgNodeListener extends ACpgNodeListener {
 
     private final CpgTokenConsumer tokenConsumer;
-    private final LinkedList<TokenType> openBlocks;
-    private final LinkedList<BlockTokens> expectedBlocks;
+    private final Map<Block, BlockTokens> blockTokens;
 
     /**
      * Creates a new {@link CpgNodeListener}.
@@ -114,8 +115,7 @@ public class CpgNodeListener extends ACpgNodeListener {
      */
     public CpgNodeListener(CpgTokenConsumer consumer) {
         this.tokenConsumer = consumer;
-        this.expectedBlocks = new LinkedList<>();
-        this.openBlocks = new LinkedList<>();
+        this.blockTokens = new IdentityHashMap<>();
     }
 
     /**
@@ -178,28 +178,24 @@ public class CpgNodeListener extends ACpgNodeListener {
     }
 
     @Override
-    public void exit(DoStatement doStatement) {
-        tokenConsumer.addToken(DO_WHILE_BLOCK_END, doStatement, true);
-    }
-
-    @Override
     public void exit(Block block) {
-        TokenType blockEndToken = openBlocks.pop();
-        if (blockEndToken == BLOCK_END)
-            return;
-
-        tokenConsumer.addToken(blockEndToken, block, true);
+        BlockTokens tokens = blockTokens.remove(block);
+        if (tokens != null) {
+            tokenConsumer.addToken(tokens.closing, block, true);
+        }
     }
 
-    private void expect(CpgTokenType opening, CpgTokenType closing) {
-        expectedBlocks.addFirst(new BlockTokens(opening, closing));
+    private void expect(Statement statement, CpgTokenType opening, CpgTokenType closing) {
+        if (statement instanceof Block block) {
+            blockTokens.put(block, new BlockTokens(opening, closing));
+        }
     }
 
     @Override
     public void visit(ConstructorDeclaration constructorDeclaration) {
         // Constructor may be implicit standard constructor
         tokenConsumer.addToken(METHOD_DECL_BEGIN, constructorDeclaration, false);
-        expect(METHOD_BODY_BEGIN, METHOD_BODY_END);
+        expect(constructorDeclaration.getBody(), METHOD_BODY_BEGIN, METHOD_BODY_END);
     }
 
     @Override
@@ -225,7 +221,7 @@ public class CpgNodeListener extends ACpgNodeListener {
     @Override
     public void visit(MethodDeclaration methodDeclaration) {
         tokenConsumer.addToken(METHOD_DECL_BEGIN, methodDeclaration, false);
-        expect(METHOD_BODY_BEGIN, METHOD_BODY_END);
+        expect(methodDeclaration.getBody(), METHOD_BODY_BEGIN, METHOD_BODY_END);
     }
 
     @Override
@@ -281,19 +277,19 @@ public class CpgNodeListener extends ACpgNodeListener {
     @Override
     public void visit(DoStatement doStatement) {
         tokenConsumer.addToken(DO_WHILE_STATEMENT, doStatement, false);
-        expect(DO_WHILE_BLOCK_START, DO_WHILE_BLOCK_END);
+        expect(doStatement.getStatement(), DO_WHILE_BLOCK_START, DO_WHILE_BLOCK_END);
     }
 
     @Override
     public void visit(ForEachStatement forEachStatement) {
         tokenConsumer.addToken(FOR_STATEMENT, forEachStatement, false);
-        expect(FOR_BLOCK_BEGIN, FOR_BLOCK_END);
+        expect(forEachStatement.getStatement(), FOR_BLOCK_BEGIN, FOR_BLOCK_END);
     }
 
     @Override
     public void visit(ForStatement forStatement) {
         tokenConsumer.addToken(FOR_STATEMENT, forStatement, false);
-        expect(FOR_BLOCK_BEGIN, FOR_BLOCK_END);
+        expect(forStatement.getStatement(), FOR_BLOCK_BEGIN, FOR_BLOCK_END);
     }
 
     @Override
@@ -305,14 +301,8 @@ public class CpgNodeListener extends ACpgNodeListener {
     public void visit(IfStatement ifStatement) {
         tokenConsumer.addToken(IF_STATEMENT, ifStatement, false);
 
-        Statement elseStatement = ifStatement.getElseStatement();
-        if (!Objects.isNull(elseStatement) && elseStatement instanceof Block) {
-            expect(ELSE_BLOCK_BEGIN, ELSE_BLOCK_END);
-        }
-
-        if (ifStatement.getThenStatement() instanceof Block) {
-            expect(IF_BLOCK_BEGIN, IF_BLOCK_END);
-        }
+        expect(ifStatement.getThenStatement(), IF_BLOCK_BEGIN, IF_BLOCK_END);
+        expect(ifStatement.getElseStatement(), ELSE_BLOCK_BEGIN, ELSE_BLOCK_END);
 
     }
 
@@ -333,19 +323,20 @@ public class CpgNodeListener extends ACpgNodeListener {
     @Override
     public void visit(SwitchStatement switchStatement) {
         tokenConsumer.addToken(SWITCH_STATEMENT, switchStatement, false);
-        expect(SWITCH_BLOCK_START, SWITCH_BLOCK_END);
+        expect(switchStatement.getStatement(), SWITCH_BLOCK_START, SWITCH_BLOCK_END);
     }
 
     @Override
     public void visit(SynchronizedStatement synchronizedStatement) {
         tokenConsumer.addToken(SYNCHRONIZED_STATEMENT, synchronizedStatement, false);
-        expect(SYNCHRONIZED_BLOCK_START, SYNCHRONIZED_BLOCK_END);
+        expect(synchronizedStatement.getBlock(), SYNCHRONIZED_BLOCK_START, SYNCHRONIZED_BLOCK_END);
     }
 
     @Override
     public void visit(TryStatement tryStatement) {
         tokenConsumer.addToken(TRY_STATEMENT, tryStatement, false);
-        expect(TRY_BLOCK_START, TRY_BLOCK_END);
+        expect(tryStatement.getTryBlock(), TRY_BLOCK_START, TRY_BLOCK_END);
+        expect(tryStatement.getFinallyBlock(), FINALLY_CLAUSE_BEGIN, FINALLY_CLAUSE_END);
     }
 
     @Override
@@ -364,7 +355,7 @@ public class CpgNodeListener extends ACpgNodeListener {
     @Override
     public void visit(WhileStatement whileStatement) {
         tokenConsumer.addToken(WHILE_STATEMENT, whileStatement, false);
-        expect(WHILE_BLOCK_START, WHILE_BLOCK_END);
+        expect(whileStatement.getStatement(), WHILE_BLOCK_START, WHILE_BLOCK_END);
     }
 
     @Override
@@ -374,13 +365,9 @@ public class CpgNodeListener extends ACpgNodeListener {
 
     @Override
     public void visit(Block block) {
-        if (expectedBlocks.isEmpty()) {
-            // Do not add BLOCK_START and BLOCK_END, otherwise that is a vulnerability
-            openBlocks.addFirst(BLOCK_END);
-        } else {
-            BlockTokens blockTokens = expectedBlocks.pop();
-            tokenConsumer.addToken(blockTokens.opening, block, false);
-            openBlocks.addFirst(blockTokens.closing);
+        BlockTokens tokens = blockTokens.get(block);
+        if (tokens != null) {
+            tokenConsumer.addToken(tokens.opening, block, false);
         }
     }
 

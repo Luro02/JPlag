@@ -3,8 +3,6 @@ package de.jplag.java_cpg.passes
 import de.fraunhofer.aisec.cpg.TranslationContext
 import de.fraunhofer.aisec.cpg.TranslationResult
 import de.fraunhofer.aisec.cpg.graph.Name
-import de.fraunhofer.aisec.cpg.graph.Node
-import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker
 import de.fraunhofer.aisec.cpg.passes.TranslationResultPass
 import de.fraunhofer.aisec.cpg.passes.configuration.DependsOn
 import de.fraunhofer.aisec.cpg.sarif.Region
@@ -17,7 +15,6 @@ import de.jplag.java_cpg.visitor.NodeOrderStrategy
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.util.ArrayDeque
 
 /**
  * This pass tokenizes the [TranslationResult].
@@ -41,24 +38,7 @@ class TokenizationPass(ctx: TranslationContext) : TranslationResultPass(ctx) {
     override fun accept(translationResult: TranslationResult) {
         tokenList.clear()
         val listener = CpgNodeListener(consumer)
-        val walker: SubgraphWalker.IterativeGraphWalker = SubgraphWalker.IterativeGraphWalker()
-        walker.strategy = { strategy.getIterator(it) }
-        val stack = ArrayDeque<Node>()
-        walker.registerOnNodeVisit { node, parent ->
-            // pop and emit exits until the top of the stack matches the parent
-            while (stack.isNotEmpty() && stack.peek() != parent) {
-                val exited = stack.pop()
-                listener.exit(exited)
-            }
-            listener.visit(node)
-            stack.push(node)
-        }
-        walker.iterate(translationResult)
-        // flush remaining exits after traversal completes
-        while (stack.isNotEmpty()) {
-            val exited = stack.pop()
-            listener.exit(exited)
-        }
+        strategy.walk(translationResult, { listener.visit(it) }, { listener.exit(it) })
         translationResult.scratch["tokenList"] = tokenList
     }
 
@@ -79,4 +59,3 @@ class TokenizationPass(ctx: TranslationContext) : TranslationResultPass(ctx) {
         val logger: Logger = LoggerFactory.getLogger(TokenizationPass::class.java)
     }
 }
-

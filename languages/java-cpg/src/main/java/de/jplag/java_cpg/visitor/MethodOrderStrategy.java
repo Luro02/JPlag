@@ -28,8 +28,6 @@ import de.fraunhofer.aisec.cpg.graph.types.Type;
 import de.fraunhofer.aisec.cpg.graph.types.UnknownType;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 
-import kotlin.Unit;
-
 /**
  * This class contains methods to put a call graph oriented order on methods.
  */
@@ -232,18 +230,12 @@ public class MethodOrderStrategy {
         List<MethodDeclaration> callGraphIndex = new ArrayList<>();
         callGraphIndex.add(mainMethod);
 
-        SubgraphWalker.IterativeGraphWalker walker = new SubgraphWalker.IterativeGraphWalker();
-        walker.setStrategy(nodeOrderStrategy::getIterator);
-
         index = 0;
         List<MethodDeclaration> newFunctions = new ArrayList<>();
-        walker.registerOnNodeVisit((node, parent) -> {
-            handleNode(node, callGraphIndex, newFunctions);
-            return Unit.INSTANCE;
-        });
         while (index < callGraphIndex.size()) {
             MethodDeclaration next = callGraphIndex.get(index++);
-            walker.iterate(next);
+            nodeOrderStrategy.walk(next, node -> handleNode(node, callGraphIndex, newFunctions), node -> {
+            });
             callGraphIndex.removeAll(newFunctions);
             callGraphIndex.addAll(index, newFunctions);
             newFunctions.clear();
