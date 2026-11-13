@@ -1,12 +1,16 @@
 package de.jplag.java_cpg.visitor;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -21,9 +25,6 @@ import de.fraunhofer.aisec.cpg.graph.declarations.MethodDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration;
-import de.fraunhofer.aisec.cpg.graph.scopes.BlockScope;
-import de.fraunhofer.aisec.cpg.graph.scopes.LoopScope;
-import de.fraunhofer.aisec.cpg.graph.scopes.TryScope;
 import de.fraunhofer.aisec.cpg.graph.scopes.ValueDeclarationScope;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
@@ -35,7 +36,7 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.fraunhofer.aisec.cpg.processing.IStrategy;
 import de.fraunhofer.aisec.cpg.processing.strategy.Strategy;
-import de.fraunhofer.aisec.cpg.sarif.Region;
+
 import de.jplag.java_cpg.transformation.operations.TransformationUtil;
 
 import com.google.common.collect.Iterators;
@@ -58,50 +59,53 @@ public class NodeOrderStrategy implements IStrategy<Node> {
 
     @Override
     public @NotNull Iterator<Node> getIterator(Node node) {
-        if (node instanceof TranslationResult translationResult) {
-            this.methodOrder = new MethodOrderStrategy().setupMethodCallGraphOrder(translationResult);
-            return Strategy.INSTANCE.AST_FORWARD(node);
-        } else if (node instanceof Component c) {
-            return walkComponent(c);
-        } else if (node instanceof TranslationUnitDeclaration tu) {
-            return walkTranslationUnit(tu);
-        } else if (node instanceof RecordDeclaration recordDecl) {
-            return walkRecord(recordDecl);
-        } else if (node instanceof MethodDeclaration methodDecl) {
-            return walkMethod(methodDecl);
-        } else if (node instanceof WhileStatement whileStatement) {
-            return walkWhileStatement(whileStatement);
-        } else if (node instanceof DoStatement doStatement) {
-            return walkDoWhileStatement(doStatement);
-        } else if (node instanceof IfStatement ifStatement) {
-            return walkIfStatement(ifStatement);
-        } else if (node instanceof ForStatement forStatement) {
-            return walkForStatement(forStatement);
-        } else if (node instanceof ForEachStatement forEachStatement) {
-            return Stream.<Node>of(forEachStatement.getStatement()).filter(Objects::nonNull).iterator();
-        } else if (node instanceof Block block) {
-            return walkBlock(block);
-        } else if (node.getScope() instanceof BlockScope || node.getScope() instanceof LoopScope || node.getScope() instanceof TryScope
-                || node.getScope() instanceof ValueDeclarationScope) {
-            return Strategy.INSTANCE.EOG_FORWARD(node);
-        } else {
-            return Strategy.INSTANCE.AST_FORWARD(node);
-        }
+        return switch (node) {
+            case TranslationResult translationResult -> {
+                this.methodOrder = new MethodOrderStrategy().setupMethodCallGraphOrder(translationResult);
+                yield Strategy.INSTANCE.AST_FORWARD(node);
+            }
+            case Component c -> walkComponent(c);
+            case TranslationUnitDeclaration tu -> walkTranslationUnit(tu);
+            case RecordDeclaration recordDecl -> walkRecord(recordDecl);
+            case MethodDeclaration methodDecl -> Iterators.concat(
+                methodDecl.getParameters().iterator(),
+                Stream.<Node>ofNullable(methodDecl.getBody()).iterator());
+            // Condition is visited already at this point
+            case WhileStatement whileStatement -> optionalNode(whileStatement.getStatement());
+            // Condition is visited already at this point
+            case DoStatement doStatement -> optionalNode(doStatement.getStatement());
+            // Condition is visited already at this point
+            case ForStatement forStatement -> optionalNode(forStatement.getStatement());
+            // Condition is visited already at this point
+            case ForEachStatement forEachStatement -> optionalNode(forEachStatement.getStatement());
+            // Condition is already visited at this point
+            case IfStatement ifStatement ->
+                Stream.<Node>of(ifStatement.getThenStatement(), ifStatement.getElseStatement()).filter(Objects::nonNull).iterator();
+            case Block block -> block.getStatements().stream().map(TransformationUtil::getEntry).iterator();
+            case Node nodeT when nodeT.getScope() instanceof ValueDeclarationScope -> Strategy.INSTANCE.EOG_FORWARD(node);
+            default -> Strategy.INSTANCE.AST_FORWARD(node);
+        };
+    }
+
+    private static Iterator<Node> optionalNode(Statement statement) {
+        return Stream.<Node>ofNullable(statement).iterator();
     }
 
     private Iterator<Node> walkTranslationUnit(TranslationUnitDeclaration tu) {
-        List<RecordDeclaration> topLevelRecords = getTopLevelRecords(tu);
-        return List.<Node>copyOf(topLevelRecords).iterator();
+        return getTopLevelRecords(tu).stream()
+            .<Node>map(record -> record)
+            .iterator();
     }
 
-    private Iterator<Node> walkComponent(Component c) {
-        Map<Boolean, List<TranslationUnitDeclaration>> filePartition = c.getTranslationUnits().stream()
-                .collect(Collectors.groupingBy(tu -> getTopLevelRecords(tu).stream().anyMatch(NodeOrderStrategy::isMainClass)));
+    private Iterator<Node> walkComponent(Component component) {
+        var files = component.getTranslationUnits().stream()
+            .collect(Collectors.partitioningBy(tu ->
+                getTopLevelRecords(tu).stream()
+                    .anyMatch(NodeOrderStrategy::isMainClass)));
 
-        List<TranslationUnitDeclaration> mainFiles = filePartition.getOrDefault(true, List.of());
-        List<TranslationUnitDeclaration> otherFiles = filePartition.getOrDefault(false, List.of());
-
-        return Iterators.concat(mainFiles.iterator(), otherFiles.iterator());
+        return Iterators.concat(
+            files.get(true).iterator(),
+            files.get(false).iterator());
     }
 
     private static boolean isMainClass(RecordDeclaration recordDeclaration) {
@@ -110,48 +114,46 @@ public class NodeOrderStrategy implements IStrategy<Node> {
 
     private List<RecordDeclaration> getTopLevelRecords(Node node) {
         List<RecordDeclaration> result = new ArrayList<>();
-        List<Node> declarations = new ArrayList<>(List.of(node));
+        Deque<Node> declarations = new ArrayDeque<>(List.of(node));
         while (!declarations.isEmpty()) {
             Node declaration = declarations.removeFirst();
-            switch (declaration) {
-                case Component component -> declarations.addAll(component.getTranslationUnits());
-                case TranslationUnitDeclaration tu -> declarations.addAll(tu.getDeclarations());
-                case NamespaceDeclaration namespaceDeclaration -> declarations.addAll(namespaceDeclaration.getDeclarations());
-                case RecordDeclaration recordDeclaration -> result.add(recordDeclaration);
-                case null, default -> {
-                    // do nothing
+            Collection<? extends Node> children = switch (declaration) {
+                case Component component -> component.getTranslationUnits();
+                case TranslationUnitDeclaration tu -> tu.getDeclarations();
+                case NamespaceDeclaration namespace -> namespace.getDeclarations();
+                case RecordDeclaration record -> {
+                    result.add(record);
+                    yield List.of();
                 }
-            }
+                default -> List.of();
+            };
+            children.stream().filter(Objects::nonNull).forEach(declarations::addLast);
 
         }
         return result;
     }
 
     private Iterator<Node> walkRecord(RecordDeclaration recordDecl) {
-        List<MethodDeclaration> functions = new ArrayList<>();
-        functions.addAll(recordDecl.getConstructors());
-        functions.addAll(recordDecl.getMethods());
-        return Iterators.concat(recordDecl instanceof EnumDeclaration enumDecl ? enumDecl.getEntries().iterator() : Collections.emptyIterator(),
-                recordDecl.getFields().iterator(), functions.stream().filter(m -> !Objects.isNull(m.getBody())).sorted(this::walkMethods).iterator(),
-                recordDecl.getTemplates().iterator(), recordDecl.getRecords().iterator());
-    }
+        var methods = Stream.concat(
+                recordDecl.getConstructors().stream(),
+                recordDecl.getMethods().stream())
+            .filter(MethodDeclaration::hasBody)
+            .sorted(methodComparator())
+            .iterator();
 
-    private static Iterator<Node> walkMethod(MethodDeclaration methodDecl) {
-        if (!methodDecl.hasBody()) {
-            return Iterators.concat(methodDecl.getParameters().iterator());
-        }
-        assert methodDecl.getBody() != null;
-        return Iterators.concat(methodDecl.getParameters().iterator(), List.of(methodDecl.getBody()).iterator());
+        return Iterators.concat(
+            recordDecl instanceof EnumDeclaration enumDecl
+                ? enumDecl.getEntries().iterator()
+                : Collections.emptyIterator(),
+            recordDecl.getFields().iterator(),
+            methods,
+            recordDecl.getTemplates().iterator(),
+            recordDecl.getRecords().iterator());
     }
 
     static boolean isMainMethod(FunctionDeclaration function) {
         return function instanceof MethodDeclaration method && method.isStatic() && method.getName().getLocalName().equals("main")
                 && method.getReturnTypes().size() == 1 && method.getReturnTypes().getFirst().getTypeName().equals("void");
-    }
-
-    @NotNull
-    private static Iterator<Node> walkBlock(Block block) {
-        return block.getStatements().stream().map(TransformationUtil::getEntry).iterator();
     }
 
     /**
@@ -161,14 +163,14 @@ public class NodeOrderStrategy implements IStrategy<Node> {
      * @return a list of all child nodes
      */
     public static List<Node> flattenStatement(Statement statement) {
-        List<Node> astChildren = SubgraphWalker.INSTANCE.flattenAST(statement);
-        NodeOrderStrategy strategy = new NodeOrderStrategy();
+        Set<Node> astChildren = new HashSet<>(SubgraphWalker.INSTANCE.flattenAST(statement));
+        IStrategy<Node> strategy = new NodeOrderStrategy();
         Node entry = TransformationUtil.getEntry(statement);
 
         List<Node> nodes = new ArrayList<>(astChildren.size());
         SubgraphWalker.IterativeGraphWalker walker = new SubgraphWalker.IterativeGraphWalker();
         walker.setStrategy(node -> Iterators.filter(strategy.getIterator(node), astChildren::contains));
-        walker.registerOnNodeVisit((node, parent) -> {
+        walker.registerOnNodeVisit((node, _) -> {
             nodes.add(node);
             return Unit.INSTANCE;
         });
@@ -176,46 +178,16 @@ public class NodeOrderStrategy implements IStrategy<Node> {
         return nodes;
     }
 
-    private Iterator<Node> walkDoWhileStatement(DoStatement doStatement) {
-        // Condition is visited already at this point
-        Node body = doStatement.getStatement();
-        if (Objects.isNull(body)) {
-            return Collections.emptyIterator();
-        }
-        return Stream.of(body).iterator();
-
-    }
-
-    private Iterator<Node> walkForStatement(ForStatement forStatement) {
-        // Condition is visited already at this point
-        Node body = forStatement.getStatement();
-        if (Objects.isNull(body)) {
-            return Collections.emptyIterator();
-        }
-        return Stream.of(body).iterator();
-    }
-
-    private Iterator<Node> walkIfStatement(IfStatement ifStatement) {
-        // Condition is already visited at this point
-        return Stream.<Node>of(ifStatement.getThenStatement(), ifStatement.getElseStatement()).filter(Objects::nonNull).iterator();
-    }
-
-    private int walkMethods(MethodDeclaration method1, MethodDeclaration method2) {
-        if (USE_CALL_GRAPH_ORDER && Objects.isNull(methodOrder)) {
-            return Comparator.<MethodDeclaration, Region>comparing(m -> m.getLocation() == null ? null : m.getLocation().getRegion()).compare(method1,
-                    method2);
+    private Comparator<MethodDeclaration> methodComparator() {
+        Comparator<MethodDeclaration> sourceOrder = Comparator.comparing(
+                method -> method.getLocation() == null ? null : method.getLocation().getRegion(), Comparator.nullsLast(Comparator.naturalOrder()));
+        if (!USE_CALL_GRAPH_ORDER || methodOrder == null) {
+            return sourceOrder;
         }
 
-        return Comparator.comparing(methodOrder::indexOf).compare(method1, method2);
-
-    }
-
-    private Iterator<Node> walkWhileStatement(WhileStatement whileStatement) {
-        // Condition is visited already at this point
-        Node body = whileStatement.getStatement();
-        if (Objects.isNull(body)) {
-            return Collections.emptyIterator();
-        }
-        return Stream.of(body).iterator();
+        return Comparator.<MethodDeclaration>comparingInt(method -> {
+            int index = methodOrder.indexOf(method);
+            return index < 0 ? Integer.MAX_VALUE : index;
+        }).thenComparing(sourceOrder);
     }
 }
