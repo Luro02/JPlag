@@ -77,7 +77,7 @@ describe('Test JSON to Comparison', () => {
     expect(root2Structure).toBeDefined()
 
     expect(root1Structure!.tokenCount).toBe(139)
-    expect(root1Structure!.tokenCount).toBe(139)
+    expect(root2Structure!.tokenCount).toBe(139)
     expect(root1Structure!.matchedTokenCount).toBe(139)
     expect(root2Structure!.matchedTokenCount).toBe(138)
 
