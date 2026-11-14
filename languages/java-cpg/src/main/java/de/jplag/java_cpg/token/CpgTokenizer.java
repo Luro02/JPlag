@@ -91,17 +91,21 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.ConstructExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.LambdaExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.NewArrayExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
+import de.jplag.java_cpg.transformation.ProvenanceTracker;
 
 /**
  * This class translates {@link Node}s into {@link CpgToken}s.
  */
 public class CpgTokenizer {
+    private final ProvenanceTracker provenanceTracker;
     private final Map<Block, BlockKind> blockKinds;
 
     /**
      * Creates a new {@link CpgTokenizer}.
+     * @param provenanceTracker the {@link ProvenanceTracker} that contains the provenance for the nodes
      */
-    public CpgTokenizer() {
+    public CpgTokenizer(ProvenanceTracker provenanceTracker) {
+        this.provenanceTracker = provenanceTracker;
         this.blockKinds = new IdentityHashMap<>();
     }
 
@@ -185,7 +189,7 @@ public class CpgTokenizer {
             default -> null;
         };
 
-        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, false));
+        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, false, provenanceTracker.get(node)));
     }
 
     /**
@@ -209,7 +213,7 @@ public class CpgTokenizer {
             default -> null;
         };
 
-        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, true));
+        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, true, provenanceTracker.get(node)));
     }
 
     private enum BlockKind {

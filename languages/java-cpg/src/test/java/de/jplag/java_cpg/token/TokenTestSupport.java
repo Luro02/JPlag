@@ -18,6 +18,8 @@ import java.util.stream.Collectors;
 
 import de.jplag.Language;
 import de.jplag.ParsingException;
+import de.jplag.Provenance;
+import de.jplag.ProvenanceAwareToken;
 import de.jplag.Token;
 import de.jplag.TokenType;
 import de.jplag.java_cpg.JavaCpgLanguage;
@@ -74,6 +76,10 @@ final class TokenTestSupport {
 
     static List<TokenType> types(Collection<? extends Token> tokens) {
         return tokens.stream().map(Token::getType).toList();
+    }
+
+    static List<String> names(Token token) {
+        return ((ProvenanceAwareToken) token).provenances().stream().map(Provenance::transformationName).toList();
     }
 
     static Token uniqueToken(Collection<? extends Token> tokens, TokenType type) {

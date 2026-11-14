@@ -134,6 +134,7 @@ public class CpgAdapter {
             configBuilder.configurePass(getKClass(AstTransformationPass.class), snapshot.forPhase(ExecutionPhase.AST_TRANSFORM, mutationContext));
             configBuilder.configurePass(getKClass(CpgTransformationPass.class), snapshot.forPhase(ExecutionPhase.CPG_TRANSFORM, mutationContext));
             configBuilder.configurePass(getKClass(DfgSortPass.class), new GraphMutationPassConfiguration(mutationContext));
+            configBuilder.configurePass(getKClass(TokenizationPass.class), new GraphMutationPassConfiguration(mutationContext));
 
             Collection<Class<? extends Pass<?>>> passClasses = new ArrayList<>(List.of(TypeResolver.class, TypeHierarchyResolver.class,
                     ImportResolver.class, SymbolResolver.class, PrepareTransformationPass.class, FixAstPass.class, DynamicInvokeResolver.class,

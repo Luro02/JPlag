@@ -54,6 +54,11 @@ public final class SetOperation<T extends Node, R extends Node> extends GraphOpe
 
         assert Objects.isNull(edge.getter().apply(parent));
         edge.setter().accept(parent, newChild);
+        var tracker = mutationContext.getProvenanceTracker();
+        tracker.record(parent);
+        if (edge.isAst()) {
+            tracker.recordSubtree(newChild);
+        }
 
         Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
         newChild.setScope(parentScope);

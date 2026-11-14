@@ -44,9 +44,13 @@ public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role
     @Override
     public void resolveAndApply(Match match, TranslationContext ctx, GraphMutationContext mutationContext) {
         N newNode = PatternUtil.instantiate(pattern);
+        var tracker = mutationContext.getProvenanceTracker();
         if (sourceLocationRole != null) {
-            newNode.setLocation(match.get(sourceGraph.getPattern(sourceLocationRole)).getLocation());
+            Node original = match.get(sourceGraph.getPattern(sourceLocationRole));
+            newNode.setLocation(original.getLocation());
+            tracker.inherit(original, newNode);
         }
+        tracker.record(newNode);
         match.register(pattern, newNode);
 
         if (scopedNodeClasses.contains(newNode.getClass())) {

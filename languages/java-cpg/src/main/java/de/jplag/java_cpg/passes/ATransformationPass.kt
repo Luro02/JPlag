@@ -10,7 +10,6 @@ import de.jplag.java_cpg.transformation.matching.pattern.Match
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
-
 /**
  * A ATransformationPass is an abstract transformation pass. All transformation passes function the same way, but need
  * to be separate classes to work with the CPG pipeline.
@@ -27,9 +26,17 @@ abstract class ATransformationPass(ctx: TranslationContext) : TranslationResultP
     override fun accept(t: TranslationResult) {
         val detector = CpgIsomorphismDetector()
         val transformations = getPhaseSpecificTransformations()
+        val tracker = mutationContext.provenanceTracker;
+
         for (transformation: GraphTransformation in transformations) {
             detector.loadGraph(t)
-            instantiate(transformation, detector)
+
+            tracker.begin(transformation)
+            try {
+                instantiate(transformation, detector)
+            } finally {
+                tracker.end()
+            }
         }
 
     }

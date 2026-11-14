@@ -85,6 +85,11 @@ public final class InsertOperation<T extends Node, R extends Node> extends Graph
         List<PropertyEdge<R>> edges = nthEdge.getMultiEdge().getAllEdges(parent);
         edges.add(index, newEdge);
         IntStream.range(index, edges.size()).forEach(i -> edges.get(i).addProperty(Properties.INDEX, i + 1));
+        var tracker = mutationContext.getProvenanceTracker();
+        tracker.record(parent);
+        if (nthEdge.isAst()) {
+            tracker.recordSubtree(newTarget);
+        }
 
         Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
         newTarget.setScope(parentScope);

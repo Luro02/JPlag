@@ -14,6 +14,7 @@ import de.fraunhofer.aisec.cpg.passes.configuration.DependsOn
 import de.fraunhofer.aisec.cpg.processing.strategy.Strategy
 import de.jplag.java_cpg.token.CpgTokenType
 import de.jplag.java_cpg.token.CpgTokenizer
+import de.jplag.java_cpg.transformation.ProvenanceTracker
 import de.jplag.java_cpg.transformation.TransformationException
 import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge
 import de.jplag.java_cpg.transformation.matching.edges.Edges.BLOCK__STATEMENTS
@@ -734,7 +735,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         }
 
     private fun tokenOrdinals(nodes: List<Node>): Sequence<Int> = sequence {
-        val tokenizer = CpgTokenizer()
+        val tokenizer = CpgTokenizer(ProvenanceTracker())
 
         for (node in nodes) {
             val token = tokenizer.visit(node).orElse(null) ?: continue

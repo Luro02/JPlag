@@ -94,6 +94,12 @@ public final class RemoveOperation<T extends Node, R extends Node> extends Graph
             siblings.remove(child);
         }
 
+        var tracker = mutationContext.getProvenanceTracker();
+        tracker.record(target);
+        if (edge.isAst()) {
+            tracker.recordSubtree(child);
+        }
+
         if (!disconnectEog) {
             return;
         }

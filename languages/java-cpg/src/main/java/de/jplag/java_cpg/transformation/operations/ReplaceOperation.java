@@ -58,6 +58,12 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
             newTarget.setLocation(oldTarget.getLocation());
         }
         edge.setter().accept(parent, newTarget);
+        var tracker = mutationContext.getProvenanceTracker();
+        tracker.record(parent);
+        if (edge.isAst()) {
+            tracker.inherit(oldTarget, newTarget);
+            tracker.recordSubtree(newTarget);
+        }
 
         Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
         newTarget.setScope(parentScope);

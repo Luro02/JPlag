@@ -1,6 +1,7 @@
 package de.jplag.java_cpg.passes;
 
 import java.util.ArrayList;
+import java.util.Objects;
 
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
@@ -38,7 +39,8 @@ public class JTokenizationPass extends TranslationResultPass {
     public void accept(TranslationResult translationResult) {
         tokenList.clear();
 
-        var tokenizer = new CpgTokenizer();
+        var tracker = Objects.requireNonNull(this.<GraphMutationPassConfiguration>passConfig()).getMutationContext().getProvenanceTracker();
+        var tokenizer = new CpgTokenizer(tracker);
 
         strategy.walk(translationResult, node -> tokenizer.visit(node).ifPresent(tokenList::add),
                 node -> tokenizer.exit(node).ifPresent(tokenList::add));
