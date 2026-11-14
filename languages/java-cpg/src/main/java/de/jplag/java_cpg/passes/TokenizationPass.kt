@@ -2,19 +2,13 @@ package de.jplag.java_cpg.passes
 
 import de.fraunhofer.aisec.cpg.TranslationContext
 import de.fraunhofer.aisec.cpg.TranslationResult
-import de.fraunhofer.aisec.cpg.graph.Name
 import de.fraunhofer.aisec.cpg.passes.TranslationResultPass
 import de.fraunhofer.aisec.cpg.passes.configuration.DependsOn
-import de.fraunhofer.aisec.cpg.sarif.Region
 import de.jplag.Token
-import de.jplag.TokenType
-import de.jplag.java_cpg.token.CpgNodeListener
-import de.jplag.java_cpg.token.CpgToken
-import de.jplag.java_cpg.token.CpgTokenConsumer
+import de.jplag.java_cpg.token.CpgTokenizer
 import de.jplag.java_cpg.visitor.NodeOrderStrategy
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.io.File
 
 /**
  * This pass tokenizes the [TranslationResult].
@@ -23,11 +17,6 @@ import java.io.File
 class TokenizationPass(ctx: TranslationContext) : TranslationResultPass(ctx) {
 
     private val tokenList = ArrayList<Token>()
-    private val consumer: CpgTokenConsumer
-
-    init {
-        this.consumer = ConcreteCpgTokenConsumer()
-    }
 
     override fun cleanup() {
         logger.info("Found %d tokens".format(tokenList.size))
@@ -37,22 +26,15 @@ class TokenizationPass(ctx: TranslationContext) : TranslationResultPass(ctx) {
 
     override fun accept(translationResult: TranslationResult) {
         tokenList.clear()
-        val listener = CpgNodeListener(consumer)
-        strategy.walk(translationResult, { listener.visit(it) }, { listener.exit(it) })
-        translationResult.scratch["tokenList"] = tokenList
-    }
 
-    private inner class ConcreteCpgTokenConsumer : CpgTokenConsumer() {
-        override fun addToken(
-            type: TokenType,
-            file: File,
-            region: Region,
-            length: Int,
-            name: Name
-        ) {
-            val token = CpgToken(type, file, region, length, name)
-            tokenList.add(token)
-        }
+        val listener = CpgTokenizer()
+
+        strategy.walk(
+            translationResult,
+            { node -> listener.visit(node).ifPresent(tokenList::add) },
+            { node -> listener.exit(node).ifPresent(tokenList::add) }
+        )
+        translationResult.scratch["tokenList"] = tokenList
     }
 
     companion object {

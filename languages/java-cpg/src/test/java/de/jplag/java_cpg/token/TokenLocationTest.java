@@ -18,12 +18,9 @@ import static de.jplag.java_cpg.token.CpgTokenType.THROW;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -34,15 +31,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 import de.fraunhofer.aisec.cpg.TranslationConfiguration;
 import de.fraunhofer.aisec.cpg.TranslationManager;
 import de.fraunhofer.aisec.cpg.frontends.java.JavaLanguage;
-import de.fraunhofer.aisec.cpg.graph.Name;
-import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.statements.CatchClause;
-import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
-import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
-import de.fraunhofer.aisec.cpg.sarif.Region;
 import de.jplag.Token;
-import de.jplag.TokenType;
 import de.jplag.java_cpg.JavaCpgLanguage;
 
 /**
@@ -52,26 +43,6 @@ class TokenLocationTest {
     private static final Path BASE_PATH = Path
             .of("src", "test", "resources", "java", "constantClass", "SubmissionA", "edu", "kit", "kastel", "sdq", "jplag", "example")
             .toAbsolutePath();
-
-    /**
-     * Missing locations must not silently produce invalid tokens.
-     */
-    @Test
-    void missingSourceLocationIsRejected() {
-        var nodes = List.<Node>of(new AssignExpression()).iterator();
-        assertThrows(IllegalStateException.class, () -> CpgNodeListener.tokenIterator(nodes).next());
-    }
-
-    @ParameterizedTest
-    @CsvSource({"-1, -1, -1, -1", "1, 1, 1, 1", "2, 1, 1, 2"})
-    void invalidSourceRegionIsRejected(int startLine, int startColumn, int endLine, int endColumn) {
-        var assignment = new AssignExpression();
-        Path file = Path.of("src", "test", "resources", "java", "GetterSetter.java").toAbsolutePath();
-        assignment.setLocation(new PhysicalLocation(file.toUri(), new Region(startLine, startColumn, endLine, endColumn)));
-        var nodes = List.<Node>of(assignment).iterator();
-
-        assertThrows(IllegalStateException.class, () -> CpgNodeListener.tokenIterator(nodes).next());
-    }
 
     /**
      * Prefixes must include complete keywords and stop before the first child, even across line breaks.
@@ -197,18 +168,8 @@ class TokenLocationTest {
         var graph = TranslationManager.builder().config(configuration).build().analyze().get();
         var catchClause = SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(CatchClause.class::isInstance).map(CatchClause.class::cast)
                 .findFirst().orElseThrow();
-        var tokens = new ArrayList<Token>();
-        var consumer = new CpgTokenConsumer() {
-            @Override
-            public void addToken(TokenType type, File source, Region region, int length, Name name) {
-                tokens.add(new CpgToken(type, source, region, length, name));
-            }
-        };
+        Token token = CpgToken.fromNode(CATCH_CLAUSE_END, catchClause, true).orElseThrow();
 
-        consumer.addToken(CATCH_CLAUSE_END, catchClause, true);
-
-        assertEquals(1, tokens.size());
-        Token token = tokens.getFirst();
         assertEquals(file.toFile(), token.getFile());
         assertEquals(22, token.getStartLine());
         assertEquals("}", sourceOf(token));

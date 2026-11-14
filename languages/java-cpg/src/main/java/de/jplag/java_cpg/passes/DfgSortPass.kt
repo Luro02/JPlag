@@ -12,7 +12,7 @@ import de.fraunhofer.aisec.cpg.passes.EvaluationOrderGraphPass
 import de.fraunhofer.aisec.cpg.passes.TranslationUnitPass
 import de.fraunhofer.aisec.cpg.passes.configuration.DependsOn
 import de.fraunhofer.aisec.cpg.processing.strategy.Strategy
-import de.jplag.java_cpg.token.CpgNodeListener
+import de.jplag.java_cpg.token.CpgTokenizer
 import de.jplag.java_cpg.token.CpgTokenType
 import de.jplag.java_cpg.transformation.TransformationException
 import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge
@@ -727,17 +727,25 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             else -> 0
         }
 
-    private fun compareTokenSequence(n1: Statement, n2: Statement): Int {
-        val nodes1 = NodeOrderStrategy.flattenStatement(n1).iterator()
-        val nodes2 = NodeOrderStrategy.flattenStatement(n2).iterator()
+    private fun tokenOrdinals(nodes: List<Node>): Sequence<Int> = sequence {
+        val tokenizer = CpgTokenizer()
 
-        val tokens1 = CpgNodeListener.tokenIterator(nodes1)
-        val tokens2 = CpgNodeListener.tokenIterator(nodes2)
+        for (node in nodes) {
+            val token = tokenizer.visit(node).orElse(null) ?: continue
+            val type = token.type
+            yield(if (type is CpgTokenType) type.ordinal else 0)
+        }
+    }
+
+    private fun compareTokenSequence(n1: Statement, n2: Statement): Int {
+        val nodes1 = NodeOrderStrategy.flattenStatement(n1)
+        val nodes2 = NodeOrderStrategy.flattenStatement(n2)
+
+        val tokens1 = tokenOrdinals(nodes1).iterator()
+        val tokens2 = tokenOrdinals(nodes2).iterator()
 
         while (tokens1.hasNext() && tokens2.hasNext()) {
-            val next1 = tokens1.next().type.let { if (it is CpgTokenType) it.ordinal else 0 }
-            val next2 = tokens2.next().type.let { if (it is CpgTokenType) it.ordinal else 0 }
-            val compare = next1 - next2
+            val compare = tokens1.next() - tokens2.next()
             if (compare != 0) return compare
         }
         return if (tokens1.hasNext()) 1
