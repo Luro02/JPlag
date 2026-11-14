@@ -121,7 +121,7 @@ public class CpgAdapter {
         return translate(files, snapshot(true));
     }
 
-    private TranslationResult translate(Set<File> files, TransformationSnapshot snapshot) throws ParsingException, InterruptedException {
+    private TranslationResult translate(Set<? extends File> files, TransformationSnapshot snapshot) throws ParsingException, InterruptedException {
         InferenceConfiguration inferenceConfiguration = InferenceConfiguration.builder().inferRecords(true).inferDfgForUnresolvedCalls(true).build();
 
         TranslationResult translationResult;
