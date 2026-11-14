@@ -1,6 +1,7 @@
 package de.jplag.reporting.jsonfactory;
 
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -11,6 +12,8 @@ import java.util.function.Function;
 
 import de.jplag.JPlagComparison;
 import de.jplag.JPlagResult;
+import de.jplag.Provenance;
+import de.jplag.ProvenanceAwareToken;
 import de.jplag.Submission;
 import de.jplag.Token;
 import de.jplag.options.SimilarityMetric;
@@ -139,7 +142,12 @@ public class ComparisonReportWriter {
         CodePosition endInSecond = new CodePosition(endOfSecond.getEndLine(), endOfSecond.getEndColumn() - 1, match.endOfSecond());
 
         return new Match(firstFileName, secondFileName, startInFirst, endInFirst, startInSecond, endInSecond, match.lengthOfFirst(),
-                match.lengthOfSecond());
+                match.lengthOfSecond(), getTransformationNames(tokensFirst), getTransformationNames(tokensSecond));
+    }
+
+    private static List<String> getTransformationNames(Collection<Token> tokens) {
+        return tokens.stream().filter(ProvenanceAwareToken.class::isInstance).map(ProvenanceAwareToken.class::cast)
+                .flatMap(token -> token.provenances().stream()).map(Provenance::transformationName).distinct().toList();
     }
 
 }
