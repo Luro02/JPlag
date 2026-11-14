@@ -24,6 +24,8 @@ export interface ReportFormatMatch {
   endInSecond: CodePosition
   lengthOfFirst: number
   lengthOfSecond: number
+  transformationsInFirst?: string[]
+  transformationsInSecond?: string[]
 }
 
 export interface CodePosition {

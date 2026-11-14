@@ -65,6 +65,17 @@ export class MatchInSingleFile {
     }
   }
 
+  /**
+   * Transformation names associated with matched tokens in this file.
+   */
+  get transformations(): string[] {
+    if (this._index === 1) {
+      return this._match.transformationsInFirst ?? []
+    } else {
+      return this._match.transformationsInSecond ?? []
+    }
+  }
+
   get length(): number {
     if (this._index === 1) {
       return this._match.lengthOfFirst

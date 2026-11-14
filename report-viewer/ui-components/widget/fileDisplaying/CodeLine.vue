@@ -18,6 +18,7 @@
             ? getMatchColor(0.3, part.match.match.colorIndex)
             : 'hsla(0, 0%, 0%, 0)'
       }"
+      :title="transformationTitle(part.match)"
       @click="matchSelected(part.match)"
     >
       <pre
@@ -56,6 +57,14 @@ function matchSelected(match?: MatchInSingleFile) {
   if (match) {
     emit('matchSelected', match.match)
   }
+}
+
+function transformationTitle(match?: MatchInSingleFile): string | undefined {
+  const transformations = match?.transformations ?? []
+  if (transformations.length === 0) {
+    return undefined
+  }
+  return ['Associated transformations', ...transformations.map((name) => `• ${name}`)].join('\n')
 }
 
 const lineRef = ref<HTMLElement | null>(null)
