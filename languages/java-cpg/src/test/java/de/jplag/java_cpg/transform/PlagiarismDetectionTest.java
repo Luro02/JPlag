@@ -20,9 +20,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -39,14 +37,6 @@ import de.jplag.java_cpg.transformation.GraphTransformation;
 public class PlagiarismDetectionTest {
 
     protected static final Path BASE_PATH = Path.of("src", "test", "resources", "java");
-    protected static File baseDirectory;
-    private static JavaCpgLanguage language;
-
-    @BeforeAll
-    static void setUpOnce() {
-        language = new JavaCpgLanguage();
-        baseDirectory = BASE_PATH.toFile();
-    }
 
     private static Stream<Arguments> getArguments() {
         return Stream.of(Arguments.of("singleUseVariable", new GraphTransformation[] {inlineSingleUseVariable}),
@@ -60,10 +50,11 @@ public class PlagiarismDetectionTest {
     @ParameterizedTest
     @MethodSource("getArguments")
     void testPlagiarismPair(String submissionsPath, GraphTransformation[] transformation) {
+        var language = new JavaCpgLanguage();
         language.resetTransformations();
         language.addTransformations(transformation);
 
-        File root = new File(baseDirectory, submissionsPath);
+        File root = BASE_PATH.resolve(submissionsPath).toFile();
         File[] content = root.listFiles();
         Assertions.assertNotNull(content);
         List<Set<File>> submissions = new ArrayList<>();
@@ -95,10 +86,5 @@ public class PlagiarismDetectionTest {
                 Assertions.assertIterableEquals(results.get(i), results.get(j));
             }
         }
-    }
-
-    @AfterEach
-    void resetTransformations() {
-        language.resetTransformations();
     }
 }
