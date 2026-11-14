@@ -12,8 +12,8 @@ import de.fraunhofer.aisec.cpg.passes.EvaluationOrderGraphPass
 import de.fraunhofer.aisec.cpg.passes.TranslationUnitPass
 import de.fraunhofer.aisec.cpg.passes.configuration.DependsOn
 import de.fraunhofer.aisec.cpg.processing.strategy.Strategy
-import de.jplag.java_cpg.token.CpgTokenizer
 import de.jplag.java_cpg.token.CpgTokenType
+import de.jplag.java_cpg.token.CpgTokenizer
 import de.jplag.java_cpg.transformation.TransformationException
 import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge
 import de.jplag.java_cpg.transformation.matching.edges.Edges.BLOCK__STATEMENTS
@@ -24,6 +24,7 @@ import de.jplag.java_cpg.visitor.NodeOrderStrategy
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.*
+
 
 /**
  * This pass sorts independent statements, removes statement that can be (conservatively) determined as useless, and builds
@@ -75,7 +76,8 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         val parentInfo = mutableMapOf<Node, ParentInfo>()
         val movableStatements = getMovableStatements(root, null, parentInfo)
 
-        val finalState = stateSafe[root] ?: throw TransformationException("EOG traversion did not reach the start - cannot sort statements")
+        val finalState = stateSafe[root]
+            ?: throw TransformationException("EOG traversion did not reach the start - cannot sort statements")
 
         /*
          * Sets DFG edges between statements
@@ -292,8 +294,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         val walker = SubgraphWalker.IterativeGraphWalker()
         walker.strategy = Strategy::EOG_FORWARD
         var found = false
-        walker.registerOnNodeVisit{
-            node, _ -> if (node == b) found = true }
+        walker.registerOnNodeVisit { node, _ -> if (node == b) found = true }
         walker.iterate(a)
         return found
     }
@@ -478,8 +479,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
     private fun <T, R> worklist(
         initList: List<T>, f: (T) -> R, successors: (T) -> Collection<T>?,
         succFilter: (T, R) -> Boolean = { _: T, _: R -> true },
-
-        ) {
+    ) {
         val worklist = mutableListOf<T>()
         worklist.addAll(initList)
         while (worklist.isNotEmpty()) {
@@ -714,9 +714,15 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         return lambda@{ n1, n2 ->
             val byType = getSortIndexByType(n1, essentialNodes) - getSortIndexByType(n2, essentialNodes)
             if (byType != 0) return@lambda byType
-            val byTokens = compareTokenSequence(n1, n2)
+
+            val nodes1 = mutableListOf<Node>()
+            val nodes2 = mutableListOf<Node>()
+            NodeOrderStrategy().walk(n1, { nodes1.add(it) }, {})
+            NodeOrderStrategy().walk(n2, { nodes2.add(it) }, {})
+
+            val byTokens = compareTokenSequence(nodes1, nodes2)
             if (byTokens != 0) return@lambda byTokens
-            else return@lambda NodeOrderStrategy.flattenStatement(n1).size - NodeOrderStrategy.flattenStatement(n2).size
+            else return@lambda nodes1.size - nodes2.size
         }
     }
 
@@ -737,10 +743,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         }
     }
 
-    private fun compareTokenSequence(n1: Statement, n2: Statement): Int {
-        val nodes1 = NodeOrderStrategy.flattenStatement(n1)
-        val nodes2 = NodeOrderStrategy.flattenStatement(n2)
-
+    private fun compareTokenSequence(nodes1: List<Node>, nodes2: List<Node>): Int {
         val tokens1 = tokenOrdinals(nodes1).iterator()
         val tokens2 = tokenOrdinals(nodes2).iterator()
 

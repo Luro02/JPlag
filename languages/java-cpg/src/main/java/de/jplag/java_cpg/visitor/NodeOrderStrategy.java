@@ -29,7 +29,6 @@ import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForEachStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
-import de.fraunhofer.aisec.cpg.graph.statements.Statement;
 import de.fraunhofer.aisec.cpg.graph.statements.SwitchStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.SynchronizedStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.TryStatement;
@@ -179,19 +178,6 @@ public class NodeOrderStrategy implements IStrategy<Node> {
     static boolean isMainMethod(FunctionDeclaration function) {
         return function instanceof MethodDeclaration method && method.isStatic() && method.getName().getLocalName().equals("main")
                 && method.getReturnTypes().size() == 1 && method.getReturnTypes().getFirst().getTypeName().equals("void");
-    }
-
-    /**
-     * Finds all child {@link Node}s of the given {@link Statement} in the order determined by the
-     * {@link NodeOrderStrategy}.
-     * @param statement the statement
-     * @return a list of all child nodes
-     */
-    public static List<Node> flattenStatement(Statement statement) {
-        List<Node> nodes = new ArrayList<>();
-        new NodeOrderStrategy().walk(statement, nodes::add, node -> {
-        });
-        return nodes;
     }
 
     private Comparator<MethodDeclaration> methodComparator() {
