@@ -116,28 +116,13 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
      * @param analyzeComments Whether to extract comments from submissions
      * @param frequencyAnalysisOptions Options related to highlight extraction
      */
-    public JPlagOptions(Language language, Integer minimumTokenMatch, Set<File> submissionDirectories, Set<File> oldSubmissionDirectories,
-            File baseCodeSubmissionDirectory, String subdirectoryName, List<String> fileSuffixes, String exclusionFileName,
-            SimilarityMetric similarityMetric, double similarityThreshold, int maximumNumberOfComparisons, ClusteringOptions clusteringOptions,
-            boolean debugParser, MergingOptions mergingOptions, boolean normalize, boolean analyzeComments,
-            FrequencyAnalysisOptions frequencyAnalysisOptions) {
-        this.language = language;
-        this.debugParser = debugParser;
-        this.fileSuffixes = fileSuffixes == null || fileSuffixes.isEmpty() ? null : Collections.unmodifiableList(fileSuffixes);
-        this.similarityThreshold = normalizeSimilarityThreshold(similarityThreshold);
-        this.maximumNumberOfComparisons = normalizeMaximumNumberOfComparisons(maximumNumberOfComparisons);
-        this.similarityMetric = similarityMetric;
-        this.minimumTokenMatch = normalizeMinimumTokenMatch(minimumTokenMatch);
-        this.exclusionFileName = exclusionFileName;
-        this.submissionDirectories = submissionDirectories == null ? null : Collections.unmodifiableSet(submissionDirectories);
-        this.oldSubmissionDirectories = oldSubmissionDirectories == null ? null : Collections.unmodifiableSet(oldSubmissionDirectories);
-        this.baseCodeSubmissionDirectory = baseCodeSubmissionDirectory;
-        this.subdirectoryName = subdirectoryName;
-        this.clusteringOptions = clusteringOptions;
-        this.mergingOptions = mergingOptions;
-        this.normalize = normalize;
-        this.analyzeComments = analyzeComments;
-        this.frequencyAnalysisOptions = frequencyAnalysisOptions;
+    public JPlagOptions {
+        fileSuffixes = fileSuffixes == null || fileSuffixes.isEmpty() ? null : Collections.unmodifiableList(fileSuffixes);
+        similarityThreshold = normalizeSimilarityThreshold(similarityThreshold);
+        maximumNumberOfComparisons = normalizeMaximumNumberOfComparisons(maximumNumberOfComparisons);
+        minimumTokenMatch = normalizeMinimumTokenMatch(minimumTokenMatch);
+        submissionDirectories = submissionDirectories == null ? null : Collections.unmodifiableSet(submissionDirectories);
+        oldSubmissionDirectories = oldSubmissionDirectories == null ? null : Collections.unmodifiableSet(oldSubmissionDirectories);
     }
 
     /**
@@ -153,7 +138,7 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
      * @return Set of excluded file names; empty set if no exclusion file is set or readable
      */
     public Set<String> excludedFiles() {
-        return Optional.ofNullable(exclusionFileName()).map(this::readExclusionFile).orElse(Collections.emptySet());
+        return Optional.ofNullable(exclusionFileName()).map(JPlagOptions::readExclusionFile).orElse(Collections.emptySet());
     }
 
     @Override
@@ -174,7 +159,7 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
         return minimumTokenMatch;
     }
 
-    private Set<String> readExclusionFile(final String exclusionFileName) {
+    private static Set<String> readExclusionFile(final String exclusionFileName) {
         try (BufferedReader reader = FileUtils.openFileReader(new File(exclusionFileName))) {
             final var excludedFileNames = reader.lines().collect(Collectors.toSet());
             if (logger.isDebugEnabled()) {
@@ -199,11 +184,11 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
         return similarityThreshold;
     }
 
-    private Integer normalizeMaximumNumberOfComparisons(Integer maximumNumberOfComparisons) {
+    private static Integer normalizeMaximumNumberOfComparisons(Integer maximumNumberOfComparisons) {
         return Math.max(maximumNumberOfComparisons, SHOW_ALL_COMPARISONS);
     }
 
-    private Integer normalizeMinimumTokenMatch(Integer minimumTokenMatch) {
+    private static Integer normalizeMinimumTokenMatch(Integer minimumTokenMatch) {
         return minimumTokenMatch != null && minimumTokenMatch < 1 ? Integer.valueOf(1) : minimumTokenMatch;
     }
 
