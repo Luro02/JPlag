@@ -1,5 +1,6 @@
 package de.jplag.java_cpg;
 
+import static de.jplag.java_cpg.CpgNormalization.DFG_NORMALIZATION;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.ifWithNegatedConditionResolution;
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseConstant;
@@ -24,13 +25,20 @@ import static de.jplag.java_cpg.transformation.TransformationRepository.wrapThen
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapWhileStatement;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import de.jplag.Language;
+import de.jplag.NormalizableLanguage;
+import de.jplag.Normalization;
 import de.jplag.ParsingException;
 import de.jplag.Token;
 import de.jplag.java_cpg.transformation.GraphTransformation;
+import de.jplag.java_cpg.transformation.GraphTransformation.ExecutionPhase;
 
 import com.google.auto.service.AutoService;
 
@@ -38,7 +46,7 @@ import com.google.auto.service.AutoService;
  * This class represents the frond end of the CPG module of JPlag.
  */
 @AutoService(Language.class)
-public class JavaCpgLanguage implements Language {
+public class JavaCpgLanguage implements NormalizableLanguage {
     private static final int DEFAULT_MINIMUM_TOKEN_MATCH = 9;
     private static final List<String> FILE_EXTENSIONS = List.of(".java");
     private static final String NAME = "Java Code Property Graph module";
@@ -51,6 +59,10 @@ public class JavaCpgLanguage implements Language {
     public JavaCpgLanguage() {
         this.cpgAdapter = new CpgAdapter(obligatoryTransformations());
         this.cpgAdapter.addTransformations(allTransformations());
+    }
+
+    private JavaCpgLanguage(CpgAdapter cpgAdapter) {
+        this.cpgAdapter = cpgAdapter;
     }
 
     /**
@@ -82,6 +94,32 @@ public class JavaCpgLanguage implements Language {
     @Override
     public int minimumTokenMatch() {
         return DEFAULT_MINIMUM_TOKEN_MATCH;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Graph transformations retain selection order within each execution phase; DFG normalization keeps its fixed pipeline
+     * position. Custom transformations registered on this instance are not copied.
+     * @throws NullPointerException if the selection is null
+     */
+    @Override
+    public JavaCpgLanguage withNormalizations(List<? extends Normalization> enabledNormalizations) {
+        Objects.requireNonNull(enabledNormalizations);
+        if (!new HashSet<>(availableNormalizations()).containsAll(enabledNormalizations)) {
+            throw new IllegalArgumentException("Unsupported normalizations: " + enabledNormalizations);
+        }
+
+        var adapter = new CpgAdapter(obligatoryTransformations());
+
+        for (Normalization normalization : enabledNormalizations) {
+            if (normalization instanceof GraphTransformation transformation) {
+                adapter.addTransformation(transformation);
+            }
+        }
+
+        adapter.setReorderingEnabled(enabledNormalizations.contains(DFG_NORMALIZATION));
+        return new JavaCpgLanguage(adapter);
     }
 
     @Override
@@ -133,6 +171,20 @@ public class JavaCpgLanguage implements Language {
                 removeGetterMethod, moveConstantToOnlyUsingClass, inlineSingleUseConstant, inlineSingleUseVariable, removeEmptyDeclarationStatement,
                 removeImplicitStandardConstructor, removeLibraryRecord, removeLibraryField, removeEmptyConstructor, removeUnsupportedConstructor,
                 removeUnsupportedMethod, removeEmptyRecord,};
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * Includes DFG normalization and built-in optional graph transformations, but not custom registrations.
+     */
+    @Override
+    public List<Normalization> availableNormalizations() {
+        List<Normalization> result = new ArrayList<>(List.of(DFG_NORMALIZATION));
+
+        Arrays.stream(allTransformations()).filter(transformation -> transformation.phase() != ExecutionPhase.OBLIGATORY).forEach(result::add);
+
+        return result;
     }
 
     @Override

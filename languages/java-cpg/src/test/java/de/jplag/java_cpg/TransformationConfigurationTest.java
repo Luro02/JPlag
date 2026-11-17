@@ -1,8 +1,16 @@
 package de.jplag.java_cpg;
 
+import static de.jplag.java_cpg.CpgNormalization.DFG_NORMALIZATION;
+import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
+import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.VARIABLE_DECL;
+import static de.jplag.java_cpg.token.CpgTokenType.WHILE_STATEMENT;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.ifWithNegatedConditionResolution;
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeEmptyRecord;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeImplicitStandardConstructor;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeUnsupportedMethod;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapThenStatement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -79,9 +87,59 @@ class TransformationConfigurationTest {
         Path braced = source("Braced", "static int pick(boolean b) { if(b) { return 1; } else { return 2; } }");
         Path bare = source("Bare", "static int pick(boolean b) { if(b) return 1; else return 2; }");
         var language = new JavaCpgLanguage();
+        var obligatoryOnly = language.withNormalizations(List.of());
         for (boolean normalize : List.of(true, false)) {
             assertEquals(tokens(language, braced, normalize), tokens(language, bare, normalize));
+            assertEquals(tokens(obligatoryOnly, braced, normalize), tokens(obligatoryOnly, bare, normalize));
         }
+    }
+
+    @Test
+    void selectedNormalizationsAreIndependentOfOtherInstances() throws Exception {
+        Path file = loop();
+        var original = new JavaCpgLanguage();
+        var loopConversion = original.withNormalizations(List.of(forStatementToWhileStatement));
+        var obligatoryOnly = loopConversion.withNormalizations(List.of());
+
+        assertTrue(tokens(original, file, true).contains(WHILE_STATEMENT));
+        original.resetTransformations();
+        assertTrue(tokens(original, file, true).contains(FOR_STATEMENT));
+        assertTrue(tokens(loopConversion, file, true).contains(WHILE_STATEMENT));
+        assertTrue(tokens(obligatoryOnly, file, true).contains(FOR_STATEMENT));
+    }
+
+    @Test
+    void normalizationsAreAppliedInTheRequestedOrder() throws Exception {
+        Path file = directory.resolve("Unsupported.java");
+        Files.writeString(file, "package example; class Unsupported { static void fail() { throw new UnsupportedOperationException(); } }");
+        var language = new JavaCpgLanguage();
+        var cleanupAfterRemoval = language.withNormalizations(List.of(removeImplicitStandardConstructor, removeUnsupportedMethod, removeEmptyRecord));
+        var cleanupBeforeRemoval = language
+                .withNormalizations(List.of(removeImplicitStandardConstructor, removeEmptyRecord, removeUnsupportedMethod));
+
+        assertFalse(tokens(cleanupAfterRemoval, file, true).contains(RECORD_DECL_BEGIN));
+        assertTrue(tokens(cleanupBeforeRemoval, file, true).contains(RECORD_DECL_BEGIN));
+    }
+
+    @Test
+    void dfgNormalizationIsSelectableAndRespectsTheNormalizationFlag() throws Exception {
+        Path file = source("Unused", "static int value() { int unused = 1; return 2; }");
+        var language = new JavaCpgLanguage();
+        var obligatoryOnly = language.withNormalizations(List.of());
+        var dfgOnly = obligatoryOnly.withNormalizations(List.of(DFG_NORMALIZATION));
+
+        var plain = tokens(obligatoryOnly, file, true);
+        assertTrue(plain.contains(VARIABLE_DECL));
+        assertFalse(tokens(dfgOnly, file, true).contains(VARIABLE_DECL));
+        assertEquals(plain, tokens(dfgOnly, file, false));
+    }
+
+    @Test
+    void obligatoryAndUnknownNormalizationsCannotBeSelected() {
+        var language = new JavaCpgLanguage();
+        assertFalse(language.availableNormalizations().contains(wrapThenStatement));
+        assertThrows(IllegalArgumentException.class, () -> language.withNormalizations(List.of(wrapThenStatement)));
+        assertThrows(IllegalArgumentException.class, () -> language.withNormalizations(List.of(() -> "unknown")));
     }
 
     @Test

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.jplag.Normalization;
 import de.jplag.java_cpg.transformation.matching.edges.CpgEdge;
 import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge;
 import de.jplag.java_cpg.transformation.matching.pattern.GraphPattern;
@@ -31,7 +32,7 @@ import de.jplag.java_cpg.transformation.operations.SetOperation;
 /**
  * This saves all information related to a transformation on a graph.
  */
-public interface GraphTransformation {
+public interface GraphTransformation extends Normalization {
 
     /**
      * Applies the transformation to the Graph represented by the given {@link Match} which indicates which {@link Node}s
@@ -47,12 +48,6 @@ public interface GraphTransformation {
      * @return the execution order
      */
     ExecutionOrder executionOrder();
-
-    /**
-     * Gets the name for this {@link GraphTransformation}.
-     * @return the name
-     */
-    String name();
 
     /**
      * Gets the {@link ExecutionPhase} for this {@link GraphTransformation}.
