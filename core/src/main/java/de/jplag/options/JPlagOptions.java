@@ -98,23 +98,6 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
 
     /**
      * Constructs a fully specified {@link JPlagOptions} instance.
-     * @param language Language used for parsing submissions
-     * @param minimumTokenMatch Minimum number of matching tokens to consider a match
-     * @param submissionDirectories Directories of new submissions to check
-     * @param oldSubmissionDirectories Directories of old submissions to compare against
-     * @param baseCodeSubmissionDirectory Directory containing the base code submissions
-     * @param subdirectoryName Subdirectory within submissions to restrict scanning
-     * @param fileSuffixes List of file suffixes to include in the comparison
-     * @param exclusionFileName File name containing list of files to exclude
-     * @param similarityMetric Metric to compute similarity threshold for comparisons
-     * @param similarityThreshold Threshold below which comparisons are ignored
-     * @param maximumNumberOfComparisons Maximum number of comparisons to show in the report
-     * @param clusteringOptions Options for clustering algorithm
-     * @param debugParser If true, stores unparsed submissions separately
-     * @param mergingOptions Options related to subsequence merging to oppose obfuscation
-     * @param normalize Enables additional normalization mechanisms (language-dependent)
-     * @param analyzeComments Whether to extract comments from submissions
-     * @param frequencyAnalysisOptions Options related to highlight extraction
      */
     public JPlagOptions {
         fileSuffixes = fileSuffixes == null || fileSuffixes.isEmpty() ? null : Collections.unmodifiableList(fileSuffixes);
@@ -247,12 +230,12 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
         }
         File submissionDirectory = submissionDirectories.iterator().next();
         try {
-            return new JPlagOptions(language, minimumTokenMatch, submissionDirectory, oldSubmissionDirectories, baseCodeSubmissionName,
-                    subdirectoryName, fileSuffixes, exclusionFileName, similarityMetric, similarityThreshold, maximumNumberOfComparisons,
-                    clusteringOptions, debugParser, mergingOptions, frequencyAnalysisOptions);
+            File resolvedBaseCode = convertLegacyBaseCodeToFile(baseCodeSubmissionName, submissionDirectory);
+            return this.withBaseCodeSubmissionDirectory(resolvedBaseCode);
         } catch (BasecodeException e) {
             throw new IllegalArgumentException(e.getMessage(), e.getCause());
         }
+
     }
 
     /**
