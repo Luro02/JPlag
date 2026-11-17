@@ -95,6 +95,10 @@ public class CliOptions implements Runnable {
     @ArgGroup(validate = false, heading = "%nFrequency Analysis%n")
     public FrequencyAnalysis highlightExtraction = new FrequencyAnalysis();
 
+    /** Normalization analysis options group. */
+    @ArgGroup(validate = false, heading = "%nNormalization Analysis%n")
+    public NormalizationAnalysis normalizationAnalysis = new NormalizationAnalysis();
+
     /**
      * Empty run method to enable automatic help printing by picocli.
      */
@@ -209,6 +213,16 @@ public class CliOptions implements Runnable {
         @Option(names = {
                 "--weighting-factor"}, description = "Controls the influence of the frequency-based match weighting (between 0 and 1, default: ${DEFAULT-VALUE}).", hidden = true)
         public double weightingFactor = FrequencyAnalysisOptions.DEFAULT_WEIGHTING_FACTOR;
+
+    }
+
+    /** Normalization analysis options. */
+    public static class NormalizationAnalysis {
+
+        /** Run disabled and fully enabled normalization configurations, currently reporting only the enabled result. */
+        @Option(names = {
+                "--normalization-analysis"}, description = "Run with optional normalizations disabled and enabled; report the enabled configuration.")
+        public boolean enabled;
 
     }
 

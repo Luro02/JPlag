@@ -8,6 +8,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import de.jplag.analysis.NormalizationAnalysisOptions;
 import de.jplag.cli.options.CliOptions;
 import de.jplag.cli.picocli.CliInputHandler;
 import de.jplag.clustering.ClusteringOptions;
@@ -65,7 +66,7 @@ public class JPlagOptionsBuilder {
                 .similarityThreshold(this.cliOptions.advanced.similarityThreshold).maximumNumberOfComparisons(this.cliOptions.shownComparisons)
                 .clusteringOptions(getClusteringOptions()).debugParser(this.cliOptions.advanced.debug).mergingOptions(getMergingOptions())
                 .normalize(this.cliOptions.normalize).analyzeComments(this.cliOptions.advanced.analyzeComments)
-                .frequencyAnalysisOptions(getFrequencyAnalysisOptions()).build();
+                .frequencyAnalysisOptions(getFrequencyAnalysisOptions()).normalizationAnalysisOptions(getNormalizationAnalysisOptions()).build();
     }
 
     private ClusteringOptions getClusteringOptions() {
@@ -102,6 +103,12 @@ public class JPlagOptionsBuilder {
     private MergingOptions getMergingOptions() {
         return new MergingOptions(this.cliOptions.merging.enabled, this.cliOptions.merging.minimumNeighborLength,
                 this.cliOptions.merging.maximumGapSize, this.cliOptions.merging.minimumRequiredMerges);
+    }
+
+    private NormalizationAnalysisOptions getNormalizationAnalysisOptions() {
+        CliOptions.NormalizationAnalysis options = this.cliOptions.normalizationAnalysis;
+
+        return new NormalizationAnalysisOptions().withEnabled(options.enabled);
     }
 
     private FrequencyAnalysisOptions getFrequencyAnalysisOptions() {

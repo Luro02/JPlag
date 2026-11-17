@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import de.jplag.JPlag;
 import de.jplag.Language;
+import de.jplag.analysis.NormalizationAnalysisOptions;
 import de.jplag.clustering.ClusteringOptions;
 import de.jplag.exceptions.BasecodeException;
 import de.jplag.highlightextraction.FrequencyAnalysisOptions;
@@ -51,15 +52,18 @@ import io.soabase.recordbuilder.core.RecordBuilder;
  * @param normalize enables additional normalization mechanisms. Only supported by some language modules.
  * @param analyzeComments If true, comments will be extracted from the submissions.
  * @param frequencyAnalysisOptions are the options related to highlight extraction.
+ * @param normalizationAnalysisOptions controls analysis across normalization configurations; disabled by default. When
+ * enabled, analysis selects normalization settings for each run instead of using {@code normalize}.
  */
-@RecordBuilder()
+@RecordBuilder
 public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Language language, Integer minimumTokenMatch,
         @JsonSerialize(contentUsing = FileSerializer.class) Set<File> submissionDirectories,
         @JsonSerialize(contentUsing = FileSerializer.class) Set<File> oldSubmissionDirectories,
         @JsonSerialize(using = FileSerializer.class) File baseCodeSubmissionDirectory, String subdirectoryName, List<String> fileSuffixes,
         String exclusionFileName, SimilarityMetric similarityMetric, double similarityThreshold, int maximumNumberOfComparisons,
         ClusteringOptions clusteringOptions, boolean debugParser, MergingOptions mergingOptions, boolean normalize, boolean analyzeComments,
-        FrequencyAnalysisOptions frequencyAnalysisOptions) implements JPlagOptionsBuilder.With {
+        FrequencyAnalysisOptions frequencyAnalysisOptions, NormalizationAnalysisOptions normalizationAnalysisOptions)
+        implements JPlagOptionsBuilder.With {
 
     /** Default value for the similarity threshold. **/
     public static final double DEFAULT_SIMILARITY_THRESHOLD = 0;
@@ -93,7 +97,7 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
     public JPlagOptions(Language language, Set<File> submissionDirectories, Set<File> oldSubmissionDirectories) {
         this(language, null, submissionDirectories, oldSubmissionDirectories, null, null, null, null, DEFAULT_SIMILARITY_METRIC,
                 DEFAULT_SIMILARITY_THRESHOLD, DEFAULT_SHOWN_COMPARISONS, new ClusteringOptions(), false, new MergingOptions(), false, false,
-                new FrequencyAnalysisOptions());
+                new FrequencyAnalysisOptions(), new NormalizationAnalysisOptions());
     }
 
     /**
@@ -209,7 +213,7 @@ public record JPlagOptions(@JsonSerialize(using = LanguageSerializer.class) Lang
         this(language, minimumTokenMatch, Set.of(submissionDirectory), oldSubmissionDirectories,
                 convertLegacyBaseCodeToFile(baseCodeSubmissionName, submissionDirectory), subdirectoryName, fileSuffixes, exclusionFileName,
                 similarityMetric, similarityThreshold, maximumNumberOfComparisons, clusteringOptions, debugParser, mergingOptions, false, false,
-                frequencyAnalysisOptions);
+                frequencyAnalysisOptions, new NormalizationAnalysisOptions());
     }
 
     /**

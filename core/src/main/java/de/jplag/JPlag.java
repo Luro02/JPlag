@@ -10,9 +10,11 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import de.jplag.analysis.NormalizationAnalysis;
 import de.jplag.clustering.ClusteringFactory;
 import de.jplag.comparison.LongestCommonSubsequenceSearch;
 import de.jplag.exceptions.ExitException;
+import de.jplag.exceptions.LanguageException;
 import de.jplag.exceptions.RootDirectoryException;
 import de.jplag.exceptions.SubmissionException;
 import de.jplag.highlightextraction.MatchWeighting;
@@ -68,13 +70,33 @@ public class JPlag {
     }
 
     /**
-     * Main procedure, executes the comparison of source code submissions.
+     * Executes the comparison of source code submissions, dispatching to normalization analysis when enabled.
      * @param options determines the parameterization.
-     * @return the results of the comparison, specifically the submissions whose similarity exceeds a set threshold.
+     * @return the comparison result, or the fully enabled configuration's result when normalization analysis is enabled
      * @throws ExitException if JPlag exits preemptively.
-     * @throws SubmissionException of not enough valid submissions are present.
+     * @throws LanguageException if normalization analysis is requested for a language that does not support it
+     * @throws SubmissionException if not enough valid submissions are present.
      */
     public static JPlagResult run(JPlagOptions options) throws ExitException {
+        if (options.normalizationAnalysisOptions().enabled()) {
+            if (!(options.language() instanceof NormalizableLanguage language)) {
+                throw new LanguageException("Language '%s' does not support normalization analysis. Run without --normalization-analysis."
+                        .formatted(options.language().getIdentifier()));
+            }
+            return NormalizationAnalysis.run(language, options);
+        }
+
+        return runConfiguration(options);
+    }
+
+    /**
+     * Executes one configuration through the complete comparison pipeline, including parsing and enabled post-processing.
+     * Does not dispatch to normalization analysis, even if it is enabled in the options.
+     * @param options determines the configuration
+     * @return the comparison result
+     * @throws ExitException if execution exits preemptively
+     */
+    public static JPlagResult runConfiguration(JPlagOptions options) throws ExitException {
         checkForConfigurationConsistency(options);
 
         // Parse and validate submissions.
