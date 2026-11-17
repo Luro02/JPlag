@@ -58,15 +58,14 @@ public class JPlagOptionsBuilder {
 
     private JPlagOptions initializeJPlagOptions(Set<File> submissionDirectories, Set<File> oldSubmissionDirectories, List<String> suffixes)
             throws CliException {
-        ClusteringOptions clusteringOptions = getClusteringOptions();
-        MergingOptions mergingOptions = getMergingOptions();
-        FrequencyAnalysisOptions frequencyAnalysisOptions = getFrequencyAnalysisOptions();
+        var options = new JPlagOptions(this.cliInputHandler.getSelectedLanguage(), submissionDirectories, oldSubmissionDirectories);
 
-        return new JPlagOptions(this.cliInputHandler.getSelectedLanguage(), this.cliOptions.minTokenMatch, submissionDirectories,
-                oldSubmissionDirectories, null, this.cliOptions.advanced.subdirectory, suffixes, this.cliOptions.advanced.exclusionFileName,
-                JPlagOptions.DEFAULT_SIMILARITY_METRIC, this.cliOptions.advanced.similarityThreshold, this.cliOptions.shownComparisons,
-                clusteringOptions, this.cliOptions.advanced.debug, mergingOptions, this.cliOptions.normalize,
-                this.cliOptions.advanced.analyzeComments, frequencyAnalysisOptions);
+        return options.with().minimumTokenMatch(this.cliOptions.minTokenMatch).subdirectoryName(this.cliOptions.advanced.subdirectory)
+                .fileSuffixes(suffixes).exclusionFileName(this.cliOptions.advanced.exclusionFileName)
+                .similarityThreshold(this.cliOptions.advanced.similarityThreshold).maximumNumberOfComparisons(this.cliOptions.shownComparisons)
+                .clusteringOptions(getClusteringOptions()).debugParser(this.cliOptions.advanced.debug).mergingOptions(getMergingOptions())
+                .normalize(this.cliOptions.normalize).analyzeComments(this.cliOptions.advanced.analyzeComments)
+                .frequencyAnalysisOptions(getFrequencyAnalysisOptions()).build();
     }
 
     private ClusteringOptions getClusteringOptions() {
