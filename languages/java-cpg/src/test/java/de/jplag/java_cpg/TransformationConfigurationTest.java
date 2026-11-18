@@ -179,6 +179,17 @@ class TransformationConfigurationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"int unused = next(seed).state;", "int unused = next(seed).child.state;", "next(seed).state = 2;",
+            "next(seed).state += 2;"})
+    void dfgNormalizationPreservesCallsInFieldReceivers(String statement) throws Exception {
+        Path file = source("FieldReceiver", "int state; FieldReceiver child; static FieldReceiver next(int seed) { return null; } "
+                + "static void sample() { int seed = 1; " + statement + " }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(DFG_NORMALIZATION));
+
+        assertEquals(tokens(language, file, false), tokens(language, file, true));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"value = 3;", "value += 3;", "value = 3; System.out.println(value);"})
     void singleUseInliningPreservesVariablesWithWrites(String usage) throws Exception {
         Path file = source("WrittenVariable", "static void sample() { int value = 1; " + usage + " }");
