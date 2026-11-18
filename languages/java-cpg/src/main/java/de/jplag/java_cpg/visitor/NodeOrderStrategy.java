@@ -132,7 +132,8 @@ public class NodeOrderStrategy implements IStrategy<Node> {
     }
 
     private static Iterator<Node> walkComponent(Component component) {
-        var files = component.getTranslationUnits().stream()
+        // FIXME: Keep file order stable until the parsing API handles sorting: https://github.com/jplag/JPlag/issues/3001
+        var files = component.getTranslationUnits().stream().sorted(Comparator.comparing(tu -> tu.getName().toString()))
                 .collect(Collectors.partitioningBy(tu -> getTopLevelRecords(tu).stream().anyMatch(NodeOrderStrategy::isMainClass)));
 
         return Iterators.concat(files.get(true).iterator(), files.get(false).iterator());
