@@ -610,10 +610,11 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
                 return false
             }
 
-            is Reference -> {
+            is MemberExpression -> {
+                // Reading an unused field still evaluates its receiver, which may have side effects.
+                val hasEssentialBase = extractEssentialNodes(node.base, essentialNodes)
                 // is this reference used to write a non-local value? Maybe there is a better way to do it
-                val isEssential = node is MemberExpression
-                        && node.access in listOf(AccessValues.WRITE, AccessValues.READWRITE)
+                val isEssential = hasEssentialBase || node.access in listOf(AccessValues.WRITE, AccessValues.READWRITE)
 
                 if (isEssential) essentialNodes.add(node)
                 return isEssential
