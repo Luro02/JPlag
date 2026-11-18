@@ -1,6 +1,8 @@
 package de.jplag.java_cpg;
 
+import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.CpgNormalization.DFG_NORMALIZATION;
+import static de.jplag.java_cpg.token.CpgTokenType.ENUM_ELEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.VARIABLE_DECL;
@@ -162,6 +164,27 @@ class TransformationConfigurationTest {
 
         assertTrue(tokens(language, file, false).contains(VARIABLE_DECL));
         assertFalse(tokens(language, file, true).contains(VARIABLE_DECL));
+    }
+
+    @Test
+    void emptyRecordRemovalPreservesPopulatedEnums() throws Exception {
+        Path file = directory.resolve("Directions.java");
+        Files.writeString(file, "package game; enum Directions { UP, DOWN, LEFT, RIGHT }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(removeEmptyRecord));
+
+        var plain = tokens(language, file, false);
+        assertTrue(plain.contains(ENUM_ELEMENT));
+        assertEquals(plain, tokens(language, file, true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"class Empty {}", "enum Empty {}"})
+    void emptyRecordRemovalStillRemovesEmptyDeclarations(String declaration) throws Exception {
+        Path file = directory.resolve("Empty.java");
+        Files.writeString(file, "package example; " + declaration);
+        var language = new JavaCpgLanguage().withNormalizations(List.of(removeEmptyRecord));
+
+        assertEquals(List.of(FILE_END), tokens(language, file, true));
     }
 
     @Test

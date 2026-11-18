@@ -107,6 +107,7 @@ import de.fraunhofer.aisec.cpg.graph.AccessValues;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.declarations.ConstructorDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
+import de.fraunhofer.aisec.cpg.graph.declarations.EnumDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.FieldDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.MethodDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration;
@@ -651,7 +652,7 @@ public class TransformationRepository {
     }
 
     /**
-     * Creates a {@link GraphTransformation} that removes MethodDeclarations with an empty body.
+     * Creates a {@link GraphTransformation} that removes record declarations without fields, methods or enum entries.
      * @return the graph transformation
      */
     private static GraphTransformation removeEmptyRecord() {
@@ -660,7 +661,8 @@ public class TransformationRepository {
             public SimpleGraphPattern<NamespaceDeclaration> build() {
                 return create(NamespaceDeclaration.class, CONTAINING_FILE,
                         related1ToN(NAMESPACE_DECLARATION__DECLARATIONS, RecordDeclaration.class, EMPTY_RECORD, setRepresentingNode(),
-                                property(nElements(RECORD_DECLARATION__FIELDS, 0)), property(nElements(RECORD_DECLARATION__METHODS, 0))));
+                                property(nElements(RECORD_DECLARATION__FIELDS, 0)), property(nElements(RECORD_DECLARATION__METHODS, 0)),
+                                property(record -> !(record instanceof EnumDeclaration enumDeclaration) || enumDeclaration.getEntries().isEmpty())));
             }
         }.build();
 
