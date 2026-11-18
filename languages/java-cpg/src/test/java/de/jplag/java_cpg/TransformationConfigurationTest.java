@@ -26,6 +26,8 @@ import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import de.jplag.TokenType;
 import de.jplag.java_cpg.passes.TransformationPassConfiguration;
@@ -142,6 +144,24 @@ class TransformationConfigurationTest {
 
         assertTrue(tokens(language, nested, false).contains(VARIABLE_DECL));
         assertEquals(tokens(language, withoutUnused, true), tokens(language, nested, true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"value = 3;", "value += 3;", "value = 3; System.out.println(value);"})
+    void singleUseInliningPreservesVariablesWithWrites(String usage) throws Exception {
+        Path file = source("WrittenVariable", "static void sample() { int value = 1; " + usage + " }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(inlineSingleUseVariable));
+
+        assertEquals(tokens(language, file, false), tokens(language, file, true));
+    }
+
+    @Test
+    void singleUseInliningStillReplacesReadOnlyUsage() throws Exception {
+        Path file = source("ReadVariable", "static int sample() { int value = 1; return value; }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(inlineSingleUseVariable));
+
+        assertTrue(tokens(language, file, false).contains(VARIABLE_DECL));
+        assertFalse(tokens(language, file, true).contains(VARIABLE_DECL));
     }
 
     @Test
