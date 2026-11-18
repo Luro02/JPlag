@@ -686,7 +686,8 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             }
 
             is NewArrayExpression -> {
-                val children = listOfNotNull(node.initializer)
+                // Dimension expressions are evaluated even when the allocated array is unused.
+                val children = node.dimensions + listOfNotNull(node.initializer)
                 val isEssential = children.map { extractEssentialNodes(it, essentialNodes) }.any { it }
                 if (isEssential) {
                     essentialNodes.add(node)

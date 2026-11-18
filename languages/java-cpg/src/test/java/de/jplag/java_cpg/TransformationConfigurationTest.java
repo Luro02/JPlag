@@ -149,6 +149,16 @@ class TransformationConfigurationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"int[] unused = new int[dimension(size)];", "int[][] unused = new int[1][dimension(size)];"})
+    void dfgNormalizationPreservesCallsInArrayDimensions(String allocation) throws Exception {
+        Path file = source("ArrayDimension",
+                "static int dimension(int size) { return size; } static void report() { int size = 2; " + allocation + " }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(DFG_NORMALIZATION));
+
+        assertEquals(tokens(language, file, false), tokens(language, file, true));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"value = 3;", "value += 3;", "value = 3; System.out.println(value);"})
     void singleUseInliningPreservesVariablesWithWrites(String usage) throws Exception {
         Path file = source("WrittenVariable", "static void sample() { int value = 1; " + usage + " }");
