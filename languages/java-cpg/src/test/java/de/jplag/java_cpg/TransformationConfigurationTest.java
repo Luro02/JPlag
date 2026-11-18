@@ -159,6 +159,26 @@ class TransformationConfigurationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"int[] unused = new int[] { next(first), next(second) };", "int[] unused = { next(first), next(second) };",
+            "int[][] unused = { { next(first) }, { next(second) } };"})
+    void dfgNormalizationPreservesCallsInArrayInitializers(String allocation) throws Exception {
+        Path file = source("ArrayInitializer",
+                "static int next(int value) { return value; } static void report() { int first = 1; int second = 2; " + allocation + " }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(DFG_NORMALIZATION));
+
+        assertEquals(tokens(language, file, false), tokens(language, file, true));
+    }
+
+    @Test
+    void dfgNormalizationStillRemovesUnusedLiteralArrayInitializers() throws Exception {
+        Path file = source("LiteralArray", "static void report() { int[] unused = { 1, 2 }; }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(DFG_NORMALIZATION));
+
+        assertTrue(tokens(language, file, false).contains(VARIABLE_DECL));
+        assertFalse(tokens(language, file, true).contains(VARIABLE_DECL));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"value = 3;", "value += 3;", "value = 3; System.out.println(value);"})
     void singleUseInliningPreservesVariablesWithWrites(String usage) throws Exception {
         Path file = source("WrittenVariable", "static void sample() { int value = 1; " + usage + " }");
