@@ -2,11 +2,15 @@ package de.jplag.java_cpg;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import de.fraunhofer.aisec.cpg.TranslationConfiguration;
 import de.fraunhofer.aisec.cpg.TranslationManager;
@@ -18,13 +22,33 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
 import de.fraunhofer.aisec.cpg.sarif.Region;
+import de.jplag.Token;
 import de.jplag.java_cpg.visitor.NodeOrderStrategy;
 
 /**
- * Checks method ordering with and without a translation's call-graph order.
+ * Checks file ordering and method ordering with and without a translation's call-graph order.
  */
 class NodeOrderStrategyTest {
     private static final Path FILE = Path.of("src", "test", "resources", "java", "GetterSetter.java").toAbsolutePath();
+
+    @Test
+    void fileOrderIsStableWithinMainAndNonMainGroups(@TempDir Path directory) throws Exception {
+        List<File> files = new ArrayList<>();
+        for (String relativePath : List.of("b/Main.java", "z/Main.java", "a/Example.java", "c/Example.java")) {
+            Path file = directory.resolve(relativePath);
+            Files.createDirectories(file.getParent());
+            boolean main = relativePath.endsWith("Main.java");
+            Files.writeString(file, "package " + file.getParent().getFileName() + "; class " + (main ? "Main" : "Example") + " { "
+                    + (main ? "static void main() {}" : "int value;") + " }");
+            files.add(file.toFile());
+        }
+        var language = new JavaCpgLanguage().withNormalizations(List.of());
+
+        for (var inputOrder : List.of(files, files.reversed())) {
+            var tokens = language.parse(new LinkedHashSet<>(inputOrder), false);
+            assertEquals(files, tokens.stream().map(Token::getFile).distinct().toList());
+        }
+    }
 
     @Test
     void sourceOrderPlacesMissingLocationsLast() {
