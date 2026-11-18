@@ -103,6 +103,7 @@ import static de.jplag.java_cpg.transformation.matching.pattern.PatternUtil.notN
 import static de.jplag.java_cpg.transformation.matching.pattern.PatternUtil.nthElement;
 import static de.jplag.java_cpg.transformation.matching.pattern.PatternUtil.or;
 
+import de.fraunhofer.aisec.cpg.graph.AccessValues;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.declarations.ConstructorDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
@@ -468,7 +469,8 @@ public class TransformationRepository {
                         // parent pointer
                         wildcardParent(VariableDeclaration.class, VARIABLE_DECLARATION, setRepresentingNode(), property(notNull(NODE__LOCATION)),
                                 property(nElements(VALUE_DECLARATION__USAGES, 1)),
-                                related(nthElement(VALUE_DECLARATION__USAGES, 0), Reference.class, VARIABLE_USAGE),
+                                related(nthElement(VALUE_DECLARATION__USAGES, 0), Reference.class, VARIABLE_USAGE,
+                                        property(reference -> reference.getAccess() == AccessValues.READ)),
                                 related(VARIABLE_DECLARATION__INITIALIZER, Expression.class, VARIABLE_VALUE,
                                         assignedValueStableBetween(VARIABLE_DECLARATION, VARIABLE_USAGE))),
                         wildcardParent(Reference.class, VARIABLE_USAGE,
