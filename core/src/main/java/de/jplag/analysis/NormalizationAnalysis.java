@@ -5,6 +5,7 @@ import java.util.List;
 import de.jplag.JPlag;
 import de.jplag.JPlagResult;
 import de.jplag.NormalizableLanguage;
+import de.jplag.Normalization;
 import de.jplag.exceptions.ExitException;
 import de.jplag.options.JPlagOptions;
 
@@ -15,20 +16,26 @@ public final class NormalizationAnalysis {
     private NormalizationAnalysis() {
     }
 
-    /**
-     * Runs comparisons with all optional normalizations disabled, then with all available normalizations enabled.
-     * Obligatory preparation remains active in both runs. Each configuration parses submissions independently and preserves
-     * the remaining options. The disabled result is discarded for now; correlation is not implemented yet.
-     * @param language the language providing the selectable normalizations
-     * @param options the input and analysis configuration
-     * @return the comparison result with all available normalizations enabled
-     * @throws ExitException if either configuration fails
-     */
     public static JPlagResult run(NormalizableLanguage language, JPlagOptions options) throws ExitException {
-        var disabledOptions = options.with().language(language.withNormalizations(List.of())).normalize(false).build();
-        JPlag.runConfiguration(disabledOptions);
+        return analyze(language, options).reportingRun().result();
+    }
 
-        var enabledOptions = options.with().language(language.withNormalizations(language.availableNormalizations())).normalize(true).build();
-        return JPlag.runConfiguration(enabledOptions);
+    public static Result analyze(NormalizableLanguage language, JPlagOptions options) throws ExitException {
+        // TODO: Disable token normalizations in the baseline as well.
+        var baseline = execute(language, options, List.of(), false);
+        var fullyEnabled = execute(language, options, List.copyOf(language.availableNormalizations()), true);
+        return new Result(List.of(baseline, fullyEnabled), fullyEnabled);
+    }
+
+    private static ConfigurationResult execute(NormalizableLanguage language, JPlagOptions options, List<Normalization> normalizations,
+            boolean normalize) throws ExitException {
+        var configuredOptions = options.with().language(language.withNormalizations(normalizations)).normalize(normalize).build();
+        return new ConfigurationResult(normalizations, JPlag.runConfiguration(configuredOptions));
+    }
+
+    public record Result(List<ConfigurationResult> runs, ConfigurationResult reportingRun) {
+        public Result {
+            runs = List.copyOf(runs);
+        }
     }
 }
