@@ -101,7 +101,10 @@ public class ComparisonReportWriter {
         String name = concatenate(firstSubmissionId, secondSubmissionId);
         AtomicInteger collisionCounter = fileNameCollisions.putIfAbsent(name, new AtomicInteger(1));
         if (collisionCounter != null) {
-            name = concatenate(firstSubmissionId, secondSubmissionId, collisionCounter.incrementAndGet());
+            // Generated suffixes can collide with filenames derived from other submission IDs.
+            do {
+                name = concatenate(firstSubmissionId, secondSubmissionId, collisionCounter.incrementAndGet());
+            } while (fileNameCollisions.putIfAbsent(name, new AtomicInteger(1)) != null);
         }
         return name;
     }
