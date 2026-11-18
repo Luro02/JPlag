@@ -4,8 +4,7 @@ import io.soabase.recordbuilder.core.RecordBuilder;
 
 /**
  * Options for analyzing match changes across normalization configurations, independently of single-run normalization.
- * @param enabled whether to run both disabled and fully enabled normalization configurations instead of an ordinary
- * comparison; currently returns only the fully enabled result, without correlating the runs
+ * @param enabled global switch to enable or disable the analysis feature
  */
 @RecordBuilder
 public record NormalizationAnalysisOptions(boolean enabled) implements NormalizationAnalysisOptionsBuilder.With {
