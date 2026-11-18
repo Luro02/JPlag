@@ -135,6 +135,16 @@ class TransformationConfigurationTest {
     }
 
     @Test
+    void dfgNormalizationRemovesNestedUnusedDeclarations() throws Exception {
+        Path nested = source("NestedUnused", "static void report() { { int unused = 1; } System.out.println(1); }");
+        Path withoutUnused = source("WithoutUnused", "static void report() { System.out.println(1); }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(DFG_NORMALIZATION));
+
+        assertTrue(tokens(language, nested, false).contains(VARIABLE_DECL));
+        assertEquals(tokens(language, withoutUnused, true), tokens(language, nested, true));
+    }
+
+    @Test
     void obligatoryAndUnknownNormalizationsCannotBeSelected() {
         var language = new JavaCpgLanguage();
         assertFalse(language.availableNormalizations().contains(wrapThenStatement));
