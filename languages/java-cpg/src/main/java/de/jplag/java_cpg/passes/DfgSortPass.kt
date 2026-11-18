@@ -74,7 +74,8 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             succFilter = { _, change -> change }
         )
 
-        val parentInfo = mutableMapOf<Node, ParentInfo>()
+        // Removing statements changes structural hashes, but not node ownership.
+        val parentInfo = IdentityHashMap<Node, ParentInfo>()
         val movableStatements = getMovableStatements(root, null, parentInfo)
 
         val finalState = stateSafe[root]
@@ -99,10 +100,6 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         relevantStatements.removeIf { it !in movableStatements }
 
         removeIrrelevantStatements(relevantStatements, movableStatements, parentInfo)
-
-        // At this point, the parentInfo map breaks. I do not know why.
-        // Restore map:
-        parentInfo.entries.toList().forEach { parentInfo[it.key] = it.value }
 
 
         /*
