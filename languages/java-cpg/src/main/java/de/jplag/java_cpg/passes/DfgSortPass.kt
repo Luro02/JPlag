@@ -695,6 +695,15 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
                 }
             }
 
+            is InitializerListExpression -> {
+                // Initializer elements are evaluated even when the resulting array is unused.
+                val isEssential = node.initializers.map { extractEssentialNodes(it, essentialNodes) }.any { it }
+                if (isEssential) {
+                    essentialNodes.add(node)
+                    return true
+                }
+            }
+
             is CastExpression -> {
                 val children = listOfNotNull(node.expression)
                 val isEssential = children.map { extractEssentialNodes(it, essentialNodes) }.any { it }
