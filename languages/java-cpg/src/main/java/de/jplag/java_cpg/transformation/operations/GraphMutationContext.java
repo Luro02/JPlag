@@ -12,7 +12,7 @@ import de.jplag.java_cpg.transformation.ProvenanceTracker;
  * Mutable graph-editing state owned by one translation, whose passes execute sequentially.
  */
 public final class GraphMutationContext implements AutoCloseable {
-    private final DummyNeighbor dummyNeighbor;
+    private final Node dummyNeighbor;
     private final Set<PropertyEdge<Node>> temporaryEdges;
     private final ProvenanceTracker tracker;
     private volatile boolean closed;
@@ -21,7 +21,7 @@ public final class GraphMutationContext implements AutoCloseable {
      * Creates independent intermediary state for one translation.
      */
     public GraphMutationContext() {
-        this.dummyNeighbor = new DummyNeighbor();
+        this.dummyNeighbor = new Node();
         this.temporaryEdges = Collections.newSetFromMap(new IdentityHashMap<>());
         this.closed = false;
         this.tracker = new ProvenanceTracker();
@@ -31,7 +31,7 @@ public final class GraphMutationContext implements AutoCloseable {
      * Returns this translation's intermediary node.
      * @return the intermediary node
      */
-    public DummyNeighbor getDummyNeighbor() {
+    public Node getDummyNeighbor() {
         return dummyNeighbor;
     }
 
@@ -62,13 +62,6 @@ public final class GraphMutationContext implements AutoCloseable {
     }
 
     /**
-     * Clears saved registrations between editing operations without disconnecting pending edges.
-     */
-    public void resetBookkeeping() {
-        dummyNeighbor.clear();
-    }
-
-    /**
      * Releases saved nodes and remaining intermediary edges after analysis has completed.
      */
     @Override
@@ -80,18 +73,15 @@ public final class GraphMutationContext implements AutoCloseable {
         temporaryEdges.addAll(dummyNeighbor.getNextEOGEdges());
         temporaryEdges.addAll(dummyNeighbor.getPrevEOGEdges());
         temporaryEdges.forEach(edge -> {
-            if (edge.getStart() == dummyNeighbor) {
-                edge.getEnd().getPrevEOGEdges().removeIf(candidate -> candidate == edge);
-            }
-            if (edge.getEnd() == dummyNeighbor) {
-                edge.getStart().getNextEOGEdges().removeIf(candidate -> candidate == edge);
+            if (edge.getStart() == dummyNeighbor || edge.getEnd() == dummyNeighbor) {
+                TransformationUtil.removeEogEdge(edge);
             }
         });
         dummyNeighbor.getNextEOGEdges().clear();
         dummyNeighbor.getPrevEOGEdges().clear();
         temporaryEdges.clear();
         tracker.clear();
-        resetBookkeeping();
+
         closed = true;
     }
 }

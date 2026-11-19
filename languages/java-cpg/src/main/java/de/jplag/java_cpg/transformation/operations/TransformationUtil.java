@@ -5,8 +5,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
-import java.util.Objects;
-import java.util.SequencedCollection;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.NotNull;
@@ -76,16 +74,6 @@ public final class TransformationUtil {
         }
     }
 
-    /**
-     * Checks if the given {@link Node} {@code maybeChild} is contained in the sub-AST with root {@code astRoot}.
-     * @param astRoot the root of the sub-AST
-     * @param maybeChild the node to check
-     * @return true if {@code maybeChild} is contained in the sub-AST rooted at {@code astRoot}
-     */
-    static boolean isAstChild(Node astRoot, Node maybeChild) {
-        return SubgraphWalker.INSTANCE.flattenAST(astRoot).contains(maybeChild);
-    }
-
     static void checkReplacementExits(Node original, Node replacement, GraphMutationContext mutationContext) {
         List<Node> exits = getEogBorders(replacement).getExits();
         // Distinct replacement exits need a mapping; broadcasting would invent paths between branches.
@@ -133,119 +121,6 @@ public final class TransformationUtil {
             retargetEogEdge(edge.outgoing(), replacementEntry);
             edge.clear(mutationContext);
         }
-    }
-
-    /**
-     * Disconnects the given {@link Node} from its EOG successor.
-     * @param node the node
-     * @param mutationContext graph mutation state owned by this translation
-     * @return the EOG successor
-     */
-    public static Node disconnectFromSuccessor(Node node, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        Node exit = getExit(node);
-        SequencedCollection<PropertyEdge<Node>> exitEdges = new ArrayList<>(getExitEdges(node, List.of(exit), true, mutationContext));
-
-        exitEdges.removeIf(e -> Objects.equals(e.getEnd(), dummy));
-        exitEdges.removeIf(e -> Objects.equals(e.getStart(), dummy));
-
-        if (exitEdges.isEmpty())
-            return null;
-
-        Node entry = exitEdges.getFirst().getEnd();
-        exitEdges.forEach(e -> {
-            PropertyEdge<Node> dummyEdge = new PropertyEdge<>(e);
-            dummy.saveOriginalTarget(e);
-
-            int index = entry.getPrevEOGEdges().indexOf(e);
-            e.setEnd(dummy);
-            mutationContext.registerIncomingEdge(e);
-
-            dummy.saveOriginalSource(dummyEdge);
-            dummyEdge.setStart(dummy);
-            mutationContext.registerOutgoingEdge(dummyEdge);
-            entry.getPrevEOGEdges().set(index, dummyEdge);
-        });
-        return entry;
-    }
-
-    /**
-     * Connects the EOG exit edges of the given target {@link Node} to the entries of the newSuccessor {@link Node}.
-     * @param target the node to be connected
-     * @param newSuccessor the node to be connected to
-     * @param enforceEogConnection if true, the two nodes will be connected even if target has no exit edges.
-     * @param mutationContext graph mutation state owned by this translation
-     */
-    static void connectNewSuccessor(Node target, Node newSuccessor, boolean enforceEogConnection, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        List<Node> exits = List.of(target);
-        List<PropertyEdge<Node>> exitEdges = getExitEdges(target, exits, false, mutationContext);
-
-        if (Objects.isNull(newSuccessor) || target == dummy) {
-            return;
-        }
-        if (target instanceof UnaryOperator unaryOperator && Objects.equals(unaryOperator.getOperatorCode(), "throw")) {
-            target.clearNextEOG();
-            return;
-        }
-
-        if (exitEdges.isEmpty()) {
-            if (enforceEogConnection) {
-                PropertyEdge<Node> exitEdge = new PropertyEdge<>(target, dummy);
-                target.addNextEOG(exitEdge);
-                mutationContext.registerIncomingEdge(exitEdge);
-                exitEdges = List.of(exitEdge);
-            } else {
-                return;
-            }
-        }
-        exitEdges = exitEdges.stream().filter(e -> e.getEnd().equals(dummy)).toList();
-        assert !exitEdges.isEmpty();
-        Node entry = getEntry(newSuccessor);
-
-        getEntryEdges(newSuccessor, entry, false, mutationContext).forEach(e -> {
-            e.getStart().getNextEOGEdges().remove(e);
-            entry.getPrevEOGEdges().remove(e);
-        });
-
-        exitEdges.forEach(e -> {
-            dummy.getPrevEOGEdges().remove(e);
-            e.setEnd(entry);
-            entry.addPrevEOG(e);
-        });
-
-    }
-
-    /**
-     * Disconnects the given {@link Node} from its EOG predecessor.
-     * @param node the node
-     * @param mutationContext graph mutation state owned by this translation
-     * @return the EOG predecessor
-     */
-    public static List<Node> disconnectFromPredecessor(Node node, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        Node entry = getEntry(node);
-
-        List<PropertyEdge<Node>> entryEdges = getEntryEdges(node, entry, true, mutationContext);
-        if (entryEdges.isEmpty())
-            return List.of();
-
-        List<Node> predExits = entryEdges.stream().map(PropertyEdge::getStart).toList();
-
-        entryEdges.stream().filter(e -> !Objects.equals(e.getStart(), dummy)).filter(e -> !Objects.equals(e.getEnd(), dummy)).forEach(e -> {
-            PropertyEdge<Node> dummyEdge = new PropertyEdge<>(e);
-            dummy.saveOriginalSource(e);
-
-            e.getStart().getNextEOGEdges().remove(e);
-            e.setStart(dummy);
-            mutationContext.registerOutgoingEdge(e);
-
-            dummy.saveOriginalTarget(dummyEdge);
-            dummyEdge.setEnd(dummy);
-            mutationContext.registerIncomingEdge(dummyEdge);
-            dummyEdge.getStart().addNextEOG(dummyEdge);
-        });
-        return predExits;
     }
 
     /**
@@ -374,69 +249,6 @@ public final class TransformationUtil {
     }
 
     /**
-     * Gets the first EOG exit {@link Node} of the given {@link Node}.
-     * @param node the node
-     * @return the EOG entry node
-     */
-    static Node getExit(Node node) {
-        return getEogBorders(node).getExits().getFirst();
-    }
-
-    static Node connectNewPredecessor(Node target, Node newPredecessor, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        Node entry = getEntry(target);
-        List<Node> exits = getEogBorders(newPredecessor).getExits();
-        List<PropertyEdge<Node>> exitEdges = getExitEdges(target, exits, true, mutationContext);
-
-        assert exitEdges.stream().allMatch(e -> e.getEnd().equals(dummy));
-        if (exitEdges.isEmpty())
-            return target;
-
-        getEntryEdges(target, entry, true, mutationContext).forEach(e -> {
-            e.getStart().getNextEOGEdges().remove(e);
-            entry.getPrevEOGEdges().remove(e);
-        });
-
-        exitEdges.forEach(e -> {
-            dummy.getPrevEOGEdges().remove(e);
-            e.setEnd(entry);
-            entry.addPrevEOG(e);
-        });
-
-        return entry;
-    }
-
-    /**
-     * Gets the EOG entry edges to the AST subtree represented by astParent, that connect to the given entry node.
-     * @param astParent the root of the AST subtree
-     * @param entry the EOG entry to the astParent
-     * @param useDummies if true, the returned edges may not be the current entries to the astParent, but instead earlier
-     * entry edges to the astParent that have been disconnected and saved for use later.
-     * @param mutationContext graph mutation state owned by this translation
-     * @return the entry edges
-     */
-    @NotNull
-    public static List<PropertyEdge<Node>> getEntryEdges(Node astParent, Node entry, boolean useDummies, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        List<PropertyEdge<Node>> currentEntryEdges = getEntryEdges(astParent, entry);
-        List<PropertyEdge<Node>> disconnectedEdges = currentEntryEdges.stream().filter(e -> e.getStart().equals(dummy)).toList();
-
-        List<PropertyEdge<Node>> originalEntryEdges = dummy.getOriginalEdgeOfTarget(entry);
-
-        if (originalEntryEdges.isEmpty() || !useDummies) {
-            // Node is still in its proper place
-            return currentEntryEdges;
-        } else if (!disconnectedEdges.isEmpty()) {
-            // Node is disconnected
-            return disconnectedEdges;
-        } else {
-            // Node has been reattached; return original exit edges (and clear them)
-            dummy.clearOriginalEdgesOfTarget(entry);
-            return originalEntryEdges;
-        }
-    }
-
-    /**
      * Gets the EOG entry edges to the AST subtree represented by astParent, that connect to the given entry node.
      * @param astParent the root of the AST subtree
      * @param entry the EOG entry to the astParent
@@ -446,36 +258,6 @@ public final class TransformationUtil {
     public static List<PropertyEdge<Node>> getEntryEdges(Node astParent, Node entry) {
         List<Node> astNodes = SubgraphWalker.INSTANCE.flattenAST(astParent);
         return entry.getPrevEOGEdges().stream().filter(edge -> !astNodes.contains(edge.getStart())).toList();
-    }
-
-    /**
-     * Gets the EOG exit edges to the AST subtree represented by astParent, that connect to the given entry node.
-     * @param astParent the root of the AST subtree
-     * @param exits the EOG exit nodes of the astParent
-     * @param useDummies if true, the returned edges may not be the current exits of the astParent, but instead earlier exit
-     * edges of the astParent that have been disconnected and saved for use later.
-     * @param mutationContext graph mutation state owned by this translation
-     * @return the exit edges
-     */
-    @NotNull
-    public static List<PropertyEdge<Node>> getExitEdges(Node astParent, List<Node> exits, boolean useDummies, GraphMutationContext mutationContext) {
-        DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        List<PropertyEdge<Node>> currentExitEdges = getExitEdges(astParent, exits);
-        List<PropertyEdge<Node>> disconnectedEdges = currentExitEdges.stream().filter(e -> e.getEnd().equals(dummy)).toList();
-
-        List<PropertyEdge<Node>> originalEdges = exits.stream().map(dummy::getOriginalEdgeOfSource).flatMap(List::stream).toList();
-        if (originalEdges.isEmpty() || !useDummies) {
-            // Node is still in its proper place
-            return currentExitEdges;
-        } else if (!disconnectedEdges.isEmpty()) {
-            // Node is disconnected
-            return disconnectedEdges;
-        } else {
-            // Node has been reattached; return original exit edges (and clear them)
-            exits.forEach(dummy::clearOriginalEdgesOfTarget);
-            return originalEdges;
-        }
-
     }
 
     /**
@@ -717,5 +499,4 @@ public final class TransformationUtil {
         }
         return result;
     }
-
 }
