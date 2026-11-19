@@ -141,6 +141,20 @@ class TransformationConfigurationTest {
     }
 
     @Test
+    void convertedLoopsMatchExplicitWhileLoopsWithDfgNormalization() throws Exception {
+        Path forLoop = source("ForLoop", "static void sample(int limit) { "
+                + "for (int index = 0; index < limit; index++) { System.out.println(index); } System.out.println(0); }");
+        Path whileLoop = source("WhileLoop", "static void sample(int limit) { int index = 0; "
+                + "while (index < limit) { System.out.println(index); index++; } System.out.println(0); }");
+        var language = new JavaCpgLanguage();
+        var conversionOnly = language.withNormalizations(List.of(forStatementToWhileStatement));
+        var conversionAndDfg = language.withNormalizations(List.of(forStatementToWhileStatement, DFG_NORMALIZATION));
+
+        assertEquals(tokens(conversionOnly, whileLoop, true), tokens(conversionOnly, forLoop, true));
+        assertEquals(tokens(conversionAndDfg, whileLoop, true), tokens(conversionAndDfg, forLoop, true));
+    }
+
+    @Test
     void assertionRemovalIsSelectableAndRespectsTheNormalizationFlag() throws Exception {
         Path file = source("Assertions", "static void sample() { int checked = 1; int message = 2; System.out.println(0); "
                 + "assert checked > 0; assert checked > 0 : String.valueOf(message); System.out.println(3); }");

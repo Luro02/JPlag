@@ -1,5 +1,6 @@
 package de.jplag.java_cpg;
 
+import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeOptionalGetCall;
@@ -34,8 +35,10 @@ import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.statements.AssertStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.DeclarationStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ForStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.WhileStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.BinaryOperator;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
@@ -161,6 +164,39 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
         assertTrue(value.getPrevEOGEdges().stream().anyMatch(edge -> edge.getStart() == thenExit));
         assertTrue(value.getNextEOGEdges().stream().anyMatch(edge -> edge.getEnd() == returned));
         assertEogIntegrity(function);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "if (condition) { System.out.println(\"then\"); }",
+            "if (condition) { System.out.println(\"then\"); } else { System.out.println(\"else\"); }"})
+    void convertedLoopsPreserveStatementsAndJoinsDuringDfgNormalization(String precedingStatement) throws Exception {
+        String source = """
+                class Example {
+                    static void test(boolean condition, int limit) {
+                        %s
+                        for (int index = 0; index < limit; index++) { System.out.println("loop"); }
+                        System.out.println("after");
+                    }
+                }
+                """.formatted(precedingStatement);
+        var before = testFunction(translate(source, false, forStatementToWhileStatement));
+        var after = testFunction(translate(source, true, forStatementToWhileStatement));
+        var nodes = SubgraphWalker.INSTANCE.flattenAST(after);
+        var loop = nodes.stream().filter(WhileStatement.class::isInstance).map(WhileStatement.class::cast).findFirst().orElseThrow();
+        var surrounding = nodes.stream().filter(Block.class::isInstance).map(Block.class::cast)
+                .filter(block -> block.getStatements().stream().anyMatch(statement -> statement == loop)).findFirst().orElseThrow();
+        var initialization = surrounding.getStatements().stream().filter(DeclarationStatement.class::isInstance).findFirst().orElseThrow();
+
+        assertEquals(callsIn(before), callsIn(after));
+        assertEogIntegrity(before);
+        assertFalse(nodes.stream().anyMatch(ForStatement.class::isInstance));
+        assertEogIntegrity(after);
+        assertTrue(surrounding.getStatements().indexOf(initialization) < surrounding.getStatements().indexOf(loop),
+                "The loop initializer must remain before the converted loop");
+        var condition = assertInstanceOf(BinaryOperator.class, loop.getCondition());
+        assertTrue(initialization.getNextDFG().stream().anyMatch(node -> node == loop),
+                "The initializer must remain a dependency of the converted loop");
+        assertTrue(TransformationUtil.isEogSuccessor(initialization, TransformationUtil.getEntry(condition)));
     }
 
     @ParameterizedTest

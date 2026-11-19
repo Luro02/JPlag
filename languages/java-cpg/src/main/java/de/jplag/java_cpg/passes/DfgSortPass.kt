@@ -156,7 +156,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             // no self-dependencies
             if (predBlock == stmtBlock) return@forEach
 
-            if (stmtBlock is ReturnStatement || locationBefore(predBlock, stmtBlock)) {
+            if (stmtBlock is ReturnStatement || statementBefore(predBlock, stmtBlock, parent)) {
                 if (stmtBlock in predBlock.nextDFG) return@forEach
                 // write-read dependency
                 properties = mutableMapOf(Pair(Properties.NAME, name))
@@ -290,7 +290,12 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         return Triple(predBlock, stmtBlock, name)
     }
 
-    private fun locationBefore(a: Node, b: Node): Boolean {
+    private fun statementBefore(a: Node, b: Node, parent: (Node) -> Node): Boolean {
+        val block = parent(a)
+        if (block is Block && block === parent(b)) {
+            // Transformed siblings may have overlapping source regions that no longer reflect execution order.
+            return block.statements.indexOf(a) < block.statements.indexOf(b)
+        }
         if (a.location == null || b.location == null) {
             return eogBefore(a, b)
         }
