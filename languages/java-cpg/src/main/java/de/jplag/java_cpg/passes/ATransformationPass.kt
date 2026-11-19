@@ -64,11 +64,7 @@ abstract class ATransformationPass(ctx: TranslationContext) : TranslationResultP
                 // transformations may lead to other matches being invalidated
                 if (detector.validateMatch(match, sourcePattern)) {
                     count++
-                    try {
-                        transformation.apply(match, ctx, mutationContext)
-                    } finally {
-                        mutationContext.resetBookkeeping()
-                    }
+                    transformation.apply(match, ctx, mutationContext)
                 } else {
                     invalidated = true
                 }

@@ -314,14 +314,10 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             val block = parentInfo[it]?.parent as Block
             val index = block.statements.indexOf(it)
             val cpgNthEdge: CpgNthEdge<Block, Statement> = CpgNthEdge(BLOCK__STATEMENTS, index)
-            try {
-                RemoveOperation.apply(block, it, cpgNthEdge, true, mutationContext)
-                if (it is DeclarationStatement) {
-                    val deletedVariables = it.declarations.filterIsInstance<VariableDeclaration>()
-                    block.localEdges.removeIf { it.end in deletedVariables }
-                }
-            } finally {
-                mutationContext.resetBookkeeping()
+            RemoveOperation.apply(block, it, cpgNthEdge, true, mutationContext)
+            if (it is DeclarationStatement) {
+                val deletedVariables = it.declarations.filterIsInstance<VariableDeclaration>()
+                block.localEdges.removeIf { it.end in deletedVariables }
             }
         }
 
@@ -384,12 +380,8 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
 
                 // Implicit return statement has no location, but should remain the last element
                 val newSuccessor = done[0]
-                try {
-                    if (!TransformationUtil.isAstSuccessor(element, newSuccessor)) {
-                        TransformationUtil.insertBefore(element, newSuccessor, mutationContext)
-                    }
-                } finally {
-                    mutationContext.resetBookkeeping()
+                if (!TransformationUtil.isAstSuccessor(element, newSuccessor)) {
+                    TransformationUtil.insertBefore(element, newSuccessor, mutationContext)
                 }
             }
             done.add(0, element)
@@ -418,28 +410,25 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
 
         val newEntry = TransformationUtil.getEogBorders(parent.statements[0]).entries[0]
 
-        newEntry.prevEOGEdges.filter { it.start === mutationContext.dummyNeighbor }.forEach {
-            it.start.nextEOGEdges.remove(it)
-            it.end.prevEOGEdges.remove(it)
-        }
+        newEntry.prevEOGEdges
+            .filter { it.start === mutationContext.dummyNeighbor }
+            .forEach { TransformationUtil.removeEogEdge(it) }
 
         //rebuild EOG edges into the block
         eogPred.filterNot { it === mutationContext.dummyNeighbor }
             .filterNot { TransformationUtil.isEogSuccessor(it, newEntry) }
             .forEach {
                 val edge = it.nextEOGEdges.find { e -> e.end === mutationContext.dummyNeighbor }!!
-                mutationContext.dummyNeighbor.prevEOGEdges.remove(edge)
-                edge.end = newEntry
-                newEntry.addPrevEOG(edge)
+                TransformationUtil.retargetEogEdge(edge, newEntry)
             }
 
         //rebuild EOG edges out of the block
         val newExit = TransformationUtil.getEogBorders((parent.statements.last())).exits[0]
         if (exit != newExit) {
-            newExit.nextEOGEdges.filter { it.end === mutationContext.dummyNeighbor }.forEach {
-                it.start.nextEOGEdges.remove(it)
-                it.end.prevEOGEdges.remove(it)
-            }
+            newExit.nextEOGEdges
+                .filter { it.end === mutationContext.dummyNeighbor }
+                .forEach { TransformationUtil.removeEogEdge(it) }
+
             eogSucc.filter { succ -> !TransformationUtil.isEogSuccessor(exit, succ) }
                 .forEach {
                     val edge = it.prevEOGEdges.find { e -> e.start === mutationContext.dummyNeighbor }!!

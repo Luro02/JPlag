@@ -122,18 +122,14 @@ public interface GraphTransformation extends Normalization {
 
         @Override
         public void apply(Match match, TranslationContext ctx, GraphMutationContext mutationContext) {
-            try {
-                List<GraphOperation> concreteOperations = instantiate(operations, match);
+            List<GraphOperation> concreteOperations = instantiate(operations, match);
 
-                // create nodes of the target graph missing from the source graph
-                newNodes.forEach(op -> op.resolveAndApply(match, ctx, mutationContext));
+            // create nodes of the target graph missing from the source graph
+            newNodes.forEach(op -> op.resolveAndApply(match, ctx, mutationContext));
 
-                logger.debug("Apply {} to node {}", name, match);
-                // apply other operations
-                apply(match, concreteOperations, ctx, mutationContext);
-            } finally {
-                mutationContext.resetBookkeeping();
-            }
+            logger.debug("Apply {} to node {}", name, match);
+            // apply other operations
+            apply(match, concreteOperations, ctx, mutationContext);
         }
 
         /**
