@@ -5,19 +5,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import de.fraunhofer.aisec.cpg.ScopeManager;
+import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Name;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
+import de.fraunhofer.aisec.cpg.graph.scopes.Scope;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.Statement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Reference;
 import de.jplag.java_cpg.transformation.TransformationException;
@@ -138,6 +147,97 @@ class TransformationUtilTest {
         assertEquals(expected, edge.getProperty(Properties.UNREACHABLE));
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void insertionSplicesTheSequenceAtEveryPosition(int index) {
+        var before = node("before");
+        var first = node("first");
+        var second = node("second");
+        var after = node("after");
+        var inserted = node("inserted");
+        connect(before, first, true);
+        connect(first, second);
+        connect(second, after);
+        var block = new Block();
+        block.setStatements(List.of(first, second));
+        var translationContext = translationContext(block);
+        var operation = new InsertOperation<Block, Statement>(null, new CpgNthEdge<>(BLOCK__STATEMENTS, index), null, true);
+
+        try (var context = new GraphMutationContext()) {
+            operation.apply(translationContext, block, inserted, index, context);
+        }
+
+        var expected = new ArrayList<Node>(List.of(before, first, second, after));
+        expected.add(index + 1, inserted);
+        for (int position = 0; position < expected.size() - 1; position++) {
+            Node start = expected.get(position);
+            Node end = expected.get(position + 1);
+            assertEquals(1, start.getNextEOGEdges().size());
+            assertEdge(start, end, position == 0 ? true : null);
+        }
+        assertEquals(expected.subList(1, expected.size() - 1), block.getStatements());
+        assertTrue(before.getPrevEOGEdges().isEmpty());
+        assertTrue(after.getNextEOGEdges().isEmpty());
+    }
+
+    @Test
+    void insertionRejectsDistinctContinuationsBeforeChangingTheGraph() {
+        var before = node("before");
+        var inserted = node("inserted");
+        var taken = node("taken");
+        var skipped = node("skipped");
+        connect(before, taken, true);
+        connect(before, skipped, false);
+        var block = new Block();
+        block.setStatements(List.of(before));
+        var translationContext = translationContext(block);
+        var operation = new InsertOperation<Block, Statement>(null, new CpgNthEdge<>(BLOCK__STATEMENTS, 1), null, true);
+
+        try (var context = new GraphMutationContext()) {
+            assertThrows(TransformationException.class, () -> operation.apply(translationContext, block, inserted, 1, context));
+        }
+
+        assertEquals(List.of(before), block.getStatements());
+        assertEquals(2, before.getNextEOGEdges().size());
+        assertEdge(before, taken, true);
+        assertEdge(before, skipped, false);
+        assertDetached(inserted);
+    }
+
+    @Test
+    void insertionReconnectsEverySubtreeExit() {
+        var predecessor = branchingNode("predecessor");
+        var first = predecessor.getThenStatement();
+        var second = predecessor.getElseStatement();
+        var continuation = node("continuation");
+        connect(first, continuation);
+        connect(second, continuation);
+        var inserted = branchingNode("inserted");
+        var entry = inserted.getCondition();
+        var insertedFirst = inserted.getThenStatement();
+        var insertedSecond = inserted.getElseStatement();
+        var oldPredecessor = node("oldPredecessor");
+        var oldSuccessor = node("oldSuccessor");
+        connect(oldPredecessor, entry);
+        connect(insertedFirst, oldSuccessor);
+        connect(insertedSecond, oldSuccessor);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.insertAfter(inserted, predecessor, context);
+        }
+
+        for (Node exit : List.of(first, second)) {
+            assertEquals(1, exit.getNextEOGEdges().size());
+            assertEdge(exit, entry, null);
+        }
+        for (Node exit : List.of(insertedFirst, insertedSecond)) {
+            assertEquals(1, exit.getNextEOGEdges().size());
+            assertEdge(exit, continuation, null);
+        }
+        assertTrue(oldPredecessor.getNextEOGEdges().isEmpty());
+        assertTrue(oldSuccessor.getPrevEOGEdges().isEmpty());
+    }
+
     @Test
     void replacementRejectsAmbiguousExitMappingBeforeDisconnecting() {
         var original = branchingNode("original");
@@ -190,6 +290,45 @@ class TransformationUtilTest {
     }
 
     @Test
+    void insertingAnAlreadyAdjacentNodeDoesNotChangeTheSequence() {
+        var before = node("before");
+        var inserted = node("inserted");
+        var after = node("after");
+        var prefix = connect(before, inserted);
+        var suffix = connect(inserted, after);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.insertAfter(inserted, before, context);
+        }
+
+        assertSame(prefix, assertEdge(before, inserted, null));
+        assertSame(suffix, assertEdge(inserted, after, null));
+        assertEquals(1, inserted.getPrevEOGEdges().size());
+        assertEquals(1, inserted.getNextEOGEdges().size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void insertingAReturnDoesNotCreateFallThrough(boolean append) {
+        var before = node("before");
+        var after = node("after");
+        var inserted = new ReturnStatement();
+        connect(before, after);
+
+        try (var context = new GraphMutationContext()) {
+            if (append) {
+                TransformationUtil.insertAfter(inserted, before, context);
+            } else {
+                TransformationUtil.insertBefore(inserted, after, context);
+            }
+        }
+
+        assertEdge(before, inserted, null);
+        assertTrue(inserted.getNextEOGEdges().isEmpty());
+        assertTrue(after.getPrevEOGEdges().isEmpty());
+    }
+
+    @Test
     void promotingExistingExitsPreservesTheirSeparateContinuations() {
         var replacement = branchingNode("replacement");
         var original = new Block();
@@ -209,6 +348,50 @@ class TransformationUtilTest {
         assertEdge(replacement.getElseStatement(), skipped, null);
     }
 
+    @Test
+    void insertionPreservesAllIncomingBranches() {
+        var first = node("first");
+        var second = node("second");
+        var inserted = node("inserted");
+        var successor = node("successor");
+        connect(first, successor, true);
+        connect(second, successor, false);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.insertBefore(inserted, successor, context);
+        }
+
+        assertEdge(first, inserted, true);
+        assertEdge(second, inserted, false);
+        assertEquals(2, inserted.getPrevEOGEdges().size());
+        assertEquals(1, inserted.getNextEOGEdges().size());
+        assertEdge(inserted, successor, null);
+        assertEquals(1, successor.getPrevEOGEdges().size());
+    }
+
+    @Test
+    void movingAStatementRetainsPlaceholdersForDfgReconnection() {
+        var before = node("before");
+        var moved = node("moved");
+        var after = node("after");
+        var destinationPredecessor = node("destinationPredecessor");
+        var destination = node("destination");
+        connect(before, moved);
+        connect(moved, after);
+        connect(destinationPredecessor, destination);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.insertBefore(moved, destination, context);
+
+            assertEdge(before, context.getDummyNeighbor(), null);
+            assertEdge(context.getDummyNeighbor(), after, null);
+            assertEdge(destinationPredecessor, moved, null);
+            assertEdge(moved, destination, null);
+            assertEquals(1, moved.getPrevEOGEdges().size());
+            assertEquals(1, moved.getNextEOGEdges().size());
+        }
+    }
+
     private static IfStatement branchingNode(String name) {
         var statement = new IfStatement();
         var condition = node(name + "Condition");
@@ -220,6 +403,15 @@ class TransformationUtilTest {
         connect(condition, first, true);
         connect(condition, second, false);
         return statement;
+    }
+
+    private static TranslationContext translationContext(Block block) {
+        var context = mock(TranslationContext.class);
+        var scopeManager = mock(ScopeManager.class);
+        var scope = mock(Scope.class);
+        when(context.getScopeManager()).thenReturn(scopeManager);
+        when(scopeManager.lookupScope(block)).thenReturn(scope);
+        return context;
     }
 
     private static Reference node(String name) {
