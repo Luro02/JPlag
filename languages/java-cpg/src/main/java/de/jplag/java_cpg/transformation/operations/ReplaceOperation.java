@@ -53,6 +53,14 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
 
         // Replace AST edge
         R oldTarget = edge.getter().apply(parent);
+
+        if (disconnectEog) {
+            // This rejects ambiguous exit mappings before the AST is modified. This would be used in the code that transfers the
+            // eog
+            // but at that time, the changes can not be undone.
+            TransformationUtil.checkReplacementExits(oldTarget, newTarget, mutationContext);
+        }
+
         logger.debug("Replace {} by {}", oldTarget, newTarget);
         if (Objects.isNull(newTarget.getLocation())) {
             newTarget.setLocation(oldTarget.getLocation());

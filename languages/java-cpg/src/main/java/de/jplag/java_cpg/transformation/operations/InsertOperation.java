@@ -111,12 +111,12 @@ public final class InsertOperation<T extends Node, R extends Node> extends Graph
             R successor = edges.get(index + 1).getEnd();
             TransformationUtil.transferEogPredecessor(successor, newTarget, mutationContext);
             R predecessor = edges.get(index - 1).getEnd();
-            TransformationUtil.transferEogSuccessor(predecessor, newTarget, mutationContext);
+            TransformationUtil.transferInsertionSuccessor(predecessor, newTarget, mutationContext);
             TransformationUtil.insertBefore(newTarget, successor, mutationContext);
         } else if (index == edges.size() - 1 && edges.size() > 1) {
             // predecessor exists
             R previouslyLast = edges.get(index - 1).getEnd();
-            TransformationUtil.transferEogSuccessor(previouslyLast, newTarget, mutationContext);
+            TransformationUtil.transferInsertionSuccessor(previouslyLast, newTarget, mutationContext);
             TransformationUtil.insertAfter(newTarget, previouslyLast, mutationContext);
 
         }
