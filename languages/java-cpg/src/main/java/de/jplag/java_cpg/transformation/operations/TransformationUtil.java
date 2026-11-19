@@ -19,6 +19,7 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.jplag.java_cpg.transformation.GraphTransformation;
+import de.jplag.java_cpg.transformation.TransformationException;
 
 /**
  * This class is a collection of auxiliary methods related to {@link GraphTransformation}s.
@@ -80,11 +81,38 @@ public final class TransformationUtil {
         return SubgraphWalker.INSTANCE.flattenAST(astRoot).contains(maybeChild);
     }
 
-    static void transferEogSuccessor(Node otherPredecessor, Node predecessor, GraphMutationContext mutationContext) {
-        disconnectFromSuccessor(predecessor, mutationContext);
-        Node otherEntry = disconnectFromSuccessor(otherPredecessor, mutationContext);
-        Node exit = getExit(predecessor);
-        connectNewSuccessor(exit, otherEntry, true, mutationContext);
+    static void checkReplacementExits(Node original, Node replacement, GraphMutationContext mutationContext) {
+        List<Node> exits = getEogBorders(replacement).getExits();
+        // Distinct replacement exits need a mapping; broadcasting would invent paths between branches.
+        if (exits.size() > 1 && getExitEdges(original, getEogBorders(original).getExits()).stream()
+                .filter(edge -> edge.getEnd() != mutationContext.getDummyNeighbor())
+                .anyMatch(edge -> exits.stream().noneMatch(exit -> exit == edge.getStart()))) {
+            throw new TransformationException("Replacing multiple EOG exits requires an explicit exit mapping");
+        }
+    }
+
+    static void transferEogSuccessor(Node original, Node replacement, GraphMutationContext mutationContext) {
+        checkReplacementExits(original, replacement, mutationContext);
+        List<Node> replacementExits = getEogBorders(replacement).getExits();
+
+        List<DetachedEdge> outgoing = disconnectSuccessors(original, getEogBorders(original).getExits(), mutationContext);
+        disconnectSuccessors(replacement, replacementExits, mutationContext);
+
+        outgoing.forEach(edge -> edge.clear(mutationContext));
+        replacementExits.forEach(exit -> clearDummyNeighbors(exit, mutationContext));
+
+        if (replacementExits.isEmpty()) {
+            return;
+        }
+
+        for (DetachedEdge edge : outgoing) {
+            PropertyEdge<Node> connection = edge.original();
+            if (replacementExits.size() == 1) {
+                connection.setStart(replacementExits.getFirst());
+            }
+            connectEogEdge(connection, mutationContext);
+        }
+
     }
 
     static void transferEogPredecessor(Node oldSuccessor, Node newSuccessor, GraphMutationContext mutationContext) {
@@ -204,6 +232,66 @@ public final class TransformationUtil {
             dummyEdge.getStart().addNextEOG(dummyEdge);
         });
         return predExits;
+    }
+
+    private static List<DetachedEdge> disconnectSuccessors(Node node, Collection<? extends Node> exits, GraphMutationContext mutationContext) {
+        // Each operation captures its current boundary; replaying saved edges can reconnect an earlier location.
+        return detachEdges(getExitEdges(node, exits), mutationContext);
+    }
+
+    private static List<DetachedEdge> detachEdges(Collection<? extends PropertyEdge<Node>> edges, GraphMutationContext mutationContext) {
+        var dummy = mutationContext.getDummyNeighbor();
+        return edges.stream().filter(edge -> edge.getStart() != dummy && edge.getEnd() != dummy)
+                .map(edge -> DetachedEdge.detach(edge, mutationContext)).toList();
+    }
+
+    private record DetachedEdge(PropertyEdge<Node> original, PropertyEdge<Node> outgoing, PropertyEdge<Node> incoming) {
+        private static DetachedEdge detach(PropertyEdge<Node> edge, GraphMutationContext mutationContext) {
+            var dummy = mutationContext.getDummyNeighbor();
+            PropertyEdge<Node> original = new PropertyEdge<>(edge);
+            Node successor = edge.getEnd();
+            PropertyEdge<Node> incoming = new PropertyEdge<>(edge);
+
+            edge.setEnd(dummy);
+            mutationContext.registerIncomingEdge(edge);
+
+            incoming.setStart(dummy);
+            mutationContext.registerOutgoingEdge(incoming);
+            // Fan-out edges belong to different incoming lists; preserve the other join predecessors.
+            int index = successor.getPrevEOGEdges().indexOf(edge);
+            successor.getPrevEOGEdges().set(index, incoming);
+            return new DetachedEdge(original, edge, incoming);
+        }
+
+        private void clear(GraphMutationContext mutationContext) {
+            var dummy = mutationContext.getDummyNeighbor();
+
+            // Repeated cuts can have identical endpoints, so consume the exact halves, not an endpoint lookup.
+            if (outgoing.getEnd() == dummy) {
+                removeEogEdge(outgoing);
+            }
+
+            if (incoming.getStart() == dummy) {
+                removeEogEdge(incoming);
+            }
+        }
+    }
+
+    private static void clearDummyNeighbors(Node node, GraphMutationContext mutationContext) {
+        var dummy = mutationContext.getDummyNeighbor();
+
+        // A moved subtree is reattached here; keep the opposite halves for its old context's reconnection.
+        for (PropertyEdge<Node> edge : List.copyOf(node.getPrevEOGEdges())) {
+            if (edge.getStart() == dummy) {
+                removeEogEdge(edge);
+            }
+        }
+
+        for (PropertyEdge<Node> edge : List.copyOf(node.getNextEOGEdges())) {
+            if (edge.getEnd() == dummy) {
+                removeEogEdge(edge);
+            }
+        }
     }
 
     /**
@@ -334,6 +422,10 @@ public final class TransformationUtil {
 
     }
 
+    private static boolean isThrow(Node node) {
+        return node instanceof UnaryOperator unaryOperator && "throw".equals(unaryOperator.getOperatorCode());
+    }
+
     /**
      * Inserts the given {@link Node} before the given newSuccessor {@link Node} in the EOG graph.
      * @param target the node
@@ -368,6 +460,21 @@ public final class TransformationUtil {
         Node newSuccEntry = disconnectFromSuccessor(newPredecessor, mutationContext);
         connectNewSuccessor(exit, newSuccEntry, false, mutationContext);
         connectNewSuccessor(predExit, entry, false, mutationContext);
+    }
+
+    private static void connectEogEdge(PropertyEdge<Node> edge, GraphMutationContext mutationContext) {
+        Node start = edge.getStart();
+        if (start == mutationContext.getDummyNeighbor() || isThrow(start)) {
+            return;
+        }
+
+        start.addNextEOG(edge);
+        edge.getEnd().addPrevEOG(edge);
+    }
+
+    public static void removeEogEdge(PropertyEdge<Node> edge) {
+        edge.getStart().getNextEOGEdges().removeIf(candidate -> candidate == edge);
+        edge.getEnd().getPrevEOGEdges().removeIf(candidate -> candidate == edge);
     }
 
     /**
@@ -428,5 +535,12 @@ public final class TransformationUtil {
             }
         }
         return result;
+    }
+
+    static void transferInsertionSuccessor(Node otherPredecessor, Node predecessor, GraphMutationContext mutationContext) {
+        disconnectFromSuccessor(predecessor, mutationContext);
+        Node otherEntry = disconnectFromSuccessor(otherPredecessor, mutationContext);
+        Node exit = getExit(predecessor);
+        connectNewSuccessor(exit, otherEntry, true, mutationContext);
     }
 }
