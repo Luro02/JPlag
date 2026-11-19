@@ -150,7 +150,6 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             val dfgPredecessor = edge.start
             val statement = edge.end
 
-            var properties: MutableMap<Properties, Any?>
             val (predBlock, stmtBlock, name) = getSiblingAncestors(dfgPredecessor, statement, depth, parent)
 
             // no self-dependencies
@@ -159,19 +158,16 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             if (stmtBlock is ReturnStatement || statementBefore(predBlock, stmtBlock, parent)) {
                 if (stmtBlock in predBlock.nextDFG) return@forEach
                 // write-read dependency
-                properties = mutableMapOf(Pair(Properties.NAME, name))
                 predBlock.addNextDFG(stmtBlock)
             } else {
-                // the name is used to filter these edges out later
-                properties = mutableMapOf(Pair(Properties.NAME, "loop$name"))
-                if (stmtBlock in predBlock.nextDFG) {
-                    edge.addProperties(properties)
-                } else {
+                if (stmtBlock !in predBlock.nextDFG) {
                     // this edge shows that the value reaches the next iteration
                     predBlock.addNextDFG(stmtBlock)
                 }
+                // Mark the lifted edges, including duplicates, so they cannot leave a cycle in the schedule.
+                predBlock.nextDFGEdges.filter { it.end === stmtBlock }
+                    .forEach { it.addProperty(Properties.NAME, "loop$name") }
                 // read-write dependency
-                properties = mutableMapOf(Pair(Properties.NAME, name))
                 stmtBlock.addNextDFG(predBlock)
             }
         }
@@ -420,7 +416,12 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             worklist.addAll(newElements)
 
         }
-        assert(done.size == relevantStatementsInThisBlock.size && done.containsAll(relevantStatementsInThisBlock))
+
+        if (done.size != relevantStatementsInThisBlock.size || !done.containsAll(relevantStatementsInThisBlock)) {
+            throw TransformationException(
+                "Incomplete DFG schedule at ${parent.location}: scheduled ${done.size} of ${relevantStatementsInThisBlock.size} statements"
+            )
+        }
 
         parent.statementEdges.clear()
         done.forEach { parent.addStatement(it) }

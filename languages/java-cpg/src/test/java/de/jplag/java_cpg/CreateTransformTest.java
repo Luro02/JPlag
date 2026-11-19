@@ -199,6 +199,35 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
         assertTrue(TransformationUtil.isEogSuccessor(initialization, TransformationUtil.getEntry(condition)));
     }
 
+    static Stream<Arguments> accumulatorLoops() {
+        String conditionalFor = "int total = 0; System.out.println(\"before\"); "
+                + "for (int index = limit; index > 0; index--) { int next = total + index; "
+                + "if (index % 2 == 0) { total = next; System.out.println(index); } } System.out.println(\"after\"); return total;";
+        return Stream.of(
+                Arguments.of("int total = 0; int index = limit; "
+                        + "while (index > 0) { int next = total + index; if (index % 2 == 0) { total = next; } index--; } return total;", false),
+                Arguments.of("int total = 0; System.out.println(\"before\"); int index = limit; "
+                        + "while (index > 0) { int next = total + index; if (index % 2 == 0) { total = next; } index--; System.out.println(index); } "
+                        + "System.out.println(\"after\"); return total;", false),
+                Arguments.of(conditionalFor, false), Arguments.of(conditionalFor, true));
+    }
+
+    @ParameterizedTest
+    @MethodSource("accumulatorLoops")
+    void dfgNormalizationPreservesAccumulatorLoops(String statements, boolean convertLoop) throws Exception {
+        String source = "class Example { static int test(int limit) { " + statements + " } }";
+        GraphTransformation[] transformations = convertLoop ? new GraphTransformation[] {forStatementToWhileStatement} : new GraphTransformation[0];
+        var before = testFunction(translate(source, false, transformations));
+        var after = testFunction(translate(source, true, transformations));
+        var beforeNodes = SubgraphWalker.INSTANCE.flattenAST(before);
+        var afterNodes = SubgraphWalker.INSTANCE.flattenAST(after);
+
+        assertEquals(beforeNodes.stream().map(node -> node.getClass().getSimpleName() + ":" + node.getCode()).sorted().toList(),
+                afterNodes.stream().map(node -> node.getClass().getSimpleName() + ":" + node.getCode()).sorted().toList());
+        assertEquals(callsIn(before), callsIn(after));
+        assertEogIntegrity(after);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"assert checked > 0;", "assert checked > 0 : detail;",
             "assert System.nanoTime() > checked : System.nanoTime() + detail;",
