@@ -5,6 +5,7 @@ import static de.jplag.java_cpg.transformation.GraphTransformation.ExecutionPhas
 import static de.jplag.java_cpg.transformation.GraphTransformation.ExecutionPhase.CPG_TRANSFORM;
 import static de.jplag.java_cpg.transformation.GraphTransformation.ExecutionPhase.OBLIGATORY;
 import static de.jplag.java_cpg.transformation.StructuralRole.ARGUMENT;
+import static de.jplag.java_cpg.transformation.StructuralRole.ASSERT_STATEMENT;
 import static de.jplag.java_cpg.transformation.StructuralRole.BODY;
 import static de.jplag.java_cpg.transformation.StructuralRole.CLASS_DECLARATION;
 import static de.jplag.java_cpg.transformation.StructuralRole.CONDITION;
@@ -114,6 +115,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.NamespaceDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
+import de.fraunhofer.aisec.cpg.graph.statements.AssertStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.DeclarationStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.DoStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.EmptyStatement;
@@ -153,6 +155,10 @@ public class TransformationRepository {
      * Constant <code>forStatementToWhileStatement</code>.
      */
     public static final GraphTransformation forStatementToWhileStatement = forStatementToWhileStatement();
+    /**
+     * Constant {@code removeAssertion}.
+     */
+    public static final GraphTransformation removeAssertion = removeAssertion();
     /**
      * Constant <code>removeGetterMethod</code>.
      */
@@ -274,6 +280,28 @@ public class TransformationRepository {
 
         return GraphTransformation.Builder.from(sourcePattern, targetPattern, "ifWithNegatedConditionResolution", AST_TRANSFORM)
                 .setExecutionOrder(ASCENDING_LOCATION).build();
+    }
+
+    /**
+     * Creates a transformation that removes entire assertion subtrees before dependency analysis.
+     *
+     * @return the graph transformation object
+     */
+    private static GraphTransformation removeAssertion() {
+        SimpleGraphPattern<Node> sourcePattern = new GraphPatternBuilder() {
+            @Override
+            public SimpleGraphPattern<Node> build() {
+                return wildcardParent(AssertStatement.class, ASSERT_STATEMENT, setRepresentingNode());
+            }
+        }.build();
+        SimpleGraphPattern<Node> targetPattern = new GraphPatternBuilder() {
+            @Override
+            public SimpleGraphPattern<Node> build() {
+                return emptyWildcardParent();
+            }
+        }.build();
+
+        return GraphTransformation.Builder.from(sourcePattern, targetPattern, "removeAssertion", AST_TRANSFORM).build();
     }
 
     /**

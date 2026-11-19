@@ -6,6 +6,7 @@ import static de.jplag.java_cpg.transformation.TransformationRepository.ifWithNe
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseConstant;
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeEmptyConstructor;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeEmptyDeclarationStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeEmptyRecord;
@@ -170,7 +171,7 @@ public class JavaCpgLanguage implements NormalizableLanguage {
         return new GraphTransformation[] {ifWithNegatedConditionResolution, forStatementToWhileStatement, removeOptionalOfCall, removeOptionalGetCall,
                 removeGetterMethod, moveConstantToOnlyUsingClass, inlineSingleUseConstant, inlineSingleUseVariable, removeEmptyDeclarationStatement,
                 removeImplicitStandardConstructor, removeLibraryRecord, removeLibraryField, removeEmptyConstructor, removeUnsupportedConstructor,
-                removeUnsupportedMethod, removeEmptyRecord,};
+                removeUnsupportedMethod, removeEmptyRecord, removeAssertion,};
     }
 
     /**

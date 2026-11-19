@@ -5,6 +5,7 @@ package de.jplag.java_cpg.transformation;
  */
 public enum StructuralRole implements Role {
     ARGUMENT("argument"),
+    ASSERT_STATEMENT("assertStatement"),
     ASSIGN_EXPRESSION("assignExpression"),
     BODY("body"),
     CLASS_DECLARATION("classDeclaration"),

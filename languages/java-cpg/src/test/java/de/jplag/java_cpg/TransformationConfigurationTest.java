@@ -2,6 +2,7 @@ package de.jplag.java_cpg;
 
 import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.CpgNormalization.DFG_NORMALIZATION;
+import static de.jplag.java_cpg.token.CpgTokenType.ASSERT_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_ELEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
@@ -10,6 +11,7 @@ import static de.jplag.java_cpg.token.CpgTokenType.WHILE_STATEMENT;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.ifWithNegatedConditionResolution;
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeEmptyRecord;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeImplicitStandardConstructor;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeUnsupportedMethod;
@@ -136,6 +138,45 @@ class TransformationConfigurationTest {
         assertTrue(plain.contains(VARIABLE_DECL));
         assertFalse(tokens(dfgOnly, file, true).contains(VARIABLE_DECL));
         assertEquals(plain, tokens(dfgOnly, file, false));
+    }
+
+    @Test
+    void assertionRemovalIsSelectableAndRespectsTheNormalizationFlag() throws Exception {
+        Path file = source("Assertions", "static void sample() { int checked = 1; int message = 2; System.out.println(0); "
+                + "assert checked > 0; assert checked > 0 : String.valueOf(message); System.out.println(3); }");
+        Path withoutAssertions = source("WithoutAssertions",
+                "static void sample() { int checked = 1; int message = 2; System.out.println(0); System.out.println(3); }");
+        var language = new JavaCpgLanguage();
+        var obligatoryOnly = language.withNormalizations(List.of());
+        var removalOnly = language.withNormalizations(List.of(removeAssertion));
+
+        assertTrue(language.availableNormalizations().contains(removeAssertion));
+        assertEquals(ExecutionPhase.AST_TRANSFORM, removeAssertion.phase());
+        var plain = tokens(obligatoryOnly, file, true);
+        assertEquals(2, plain.stream().filter(type -> type == ASSERT_STATEMENT).count());
+        assertEquals(plain, tokens(removalOnly, file, false));
+        var removed = tokens(removalOnly, file, true);
+        assertFalse(removed.contains(ASSERT_STATEMENT));
+        assertEquals(tokens(obligatoryOnly, withoutAssertions, true), removed);
+        assertTrue(removed.contains(VARIABLE_DECL));
+    }
+
+    @Test
+    void assertionRemovalPrecedesDfgCleanupOfAssertionOnlyDependencies() throws Exception {
+        Path file = source("AssertionDependencies", "static int sample() { int checked = 1; int message = 2; "
+                + "assert checked > 0 : message; System.out.println(3); return 4; }");
+        Path withoutDependencies = source("WithoutDependencies", "static int sample() { System.out.println(3); return 4; }");
+        var language = new JavaCpgLanguage();
+        var dfgOnly = language.withNormalizations(List.of(DFG_NORMALIZATION));
+        var removalAndDfg = language.withNormalizations(List.of(removeAssertion, DFG_NORMALIZATION));
+        var plain = tokens(language.withNormalizations(List.of()), file, true);
+        var removed = tokens(removalAndDfg, file, true);
+
+        assertEquals(plain, tokens(dfgOnly, file, true));
+        assertFalse(removed.contains(ASSERT_STATEMENT));
+        assertFalse(removed.contains(VARIABLE_DECL));
+        assertEquals(tokens(language.withNormalizations(List.of()), withoutDependencies, true), removed);
+        assertEquals(plain, tokens(removalAndDfg, file, false));
     }
 
     @Test

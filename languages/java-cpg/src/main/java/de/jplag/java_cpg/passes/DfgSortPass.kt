@@ -58,8 +58,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             it.nextDFGEdges.clear()
         }
 
-        val returnStatements = childNodes
-            .filter { it is ReturnStatement || it is UnaryOperator && it.operatorCode == "throw" }
+        val analysisEndpoints = getAnalysisEndpoints(childNodes)
         state = State()
         stateSafe = HashMap()
 
@@ -68,7 +67,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
          * These DFG edges are then used in analyzeDfg()
          */
         worklist(
-            returnStatements,
+            analysisEndpoints,
             { val change = handle(it); change },
             { it.prevEOG.sortedBy { it.location?.region }.reversed() },
             succFilter = { _, change -> change }
@@ -123,6 +122,16 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
 
         reorderStatements(essentialNodesOut, relevantStatements, parentInfo, root.body as Block)
 
+    }
+
+    private fun getAnalysisEndpoints(nodes: List<Node>): List<Node> {
+        val endpoints = nodes.filter { it is ReturnStatement || TransformationUtil.isThrow(it) }
+
+        // CPG 8.3.0 leaves assertion messages on separate EOG paths, unreachable backwards from returns.
+        // Start at their exits so conditional message operands are visited as well.
+        val assertionMessageExits = nodes.filterIsInstance<AssertStatement>().mapNotNull { it.message }
+            .flatMap { TransformationUtil.getEogBorders(it).exits }
+        return endpoints + assertionMessageExits
     }
 
     private fun extractTransitiveDependencies(
@@ -344,6 +353,9 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         parentMap: MutableMap<Node, ParentInfo>,
         parent: Block,
     ) {
+        // Optional removals can leave obligatory wrapper blocks empty.
+        if (parent.statements.isEmpty()) return
+
         // save entry point to keep EOG graph intact at the end
         val entry = TransformationUtil.getEogBorders(parent.statements[0]).entries[0]
         val eogPred = TransformationUtil.getEntryEdges(parent, entry)
@@ -556,7 +568,8 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
                 return isEssential
             }
 
-            is ReturnStatement, is CallExpression -> {
+            // Assertions can throw and evaluate condition/message expressions unless explicitly removed.
+            is AssertStatement, is ReturnStatement, is CallExpression -> {
                 essentialNodes.add(node)
                 return true
             }
@@ -571,7 +584,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
             }
 
             is UnaryOperator -> {
-                if (node.operatorCode == "throw" || extractEssentialNodes(node.input, essentialNodes)) {
+                if (TransformationUtil.isThrow(node) || extractEssentialNodes(node.input, essentialNodes)) {
                     essentialNodes.add(node)
                     return true
                 }

@@ -4,6 +4,8 @@ import static de.jplag.SharedTokenType.FILE_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
+import static de.jplag.java_cpg.token.CpgTokenType.METHOD_BODY_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.METHOD_BODY_END;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_CALL;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.WHILE_BLOCK_END;
@@ -17,6 +19,7 @@ import static de.jplag.java_cpg.token.TokenTestSupport.tokensInMethod;
 import static de.jplag.java_cpg.token.TokenTestSupport.uniqueToken;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForEachStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForStatement;
 import static de.jplag.testutils.TokenUtils.tokensByFile;
@@ -24,10 +27,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import de.jplag.Token;
 import de.jplag.java_cpg.JavaCpgLanguage;
@@ -89,6 +95,29 @@ class TokenProvenanceTest {
         uniqueToken(plain, FOR_STATEMENT);
         assertTrue(plain.stream().allMatch(token -> names(token).isEmpty()));
         assertEquals(Set.copyOf(names(uniqueToken(normalized, WHILE_STATEMENT))), Set.copyOf(names(uniqueToken(repeated, WHILE_STATEMENT))));
+    }
+
+    @Test
+    void assertionRemovalOnlyLabelsTheContainingBlock(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("Assertions.java");
+        Files.writeString(file, "class Assertions { static void changed() { System.out.println(1); "
+                + "assert true : String.valueOf(2); System.out.println(3); } static void unchanged() { System.out.println(4); } }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(removeAssertion));
+        var files = Set.of(file.toFile());
+        var normalized = language.parse(files, true);
+        var plain = language.parse(files, false);
+        var repeated = language.parse(files, true);
+
+        for (var type : List.of(METHOD_BODY_BEGIN, METHOD_BODY_END)) {
+            uniqueToken(normalized, token -> token.getType() == type && names(token).contains(removeAssertion.name()));
+        }
+        assertEquals(2, normalized.stream().filter(token -> names(token).contains(removeAssertion.name())).count());
+        var calls = normalized.stream().filter(token -> token.getType() == METHOD_CALL).toList();
+        assertEquals(3, calls.size());
+        assertTrue(calls.stream().allMatch(token -> names(token).isEmpty()));
+        assertTrue(names(uniqueToken(normalized, FILE_END)).isEmpty());
+        assertTrue(plain.stream().allMatch(token -> names(token).isEmpty()));
+        assertEquals(normalized.stream().map(TokenTestSupport::names).toList(), repeated.stream().map(TokenTestSupport::names).toList());
     }
 
     @Test

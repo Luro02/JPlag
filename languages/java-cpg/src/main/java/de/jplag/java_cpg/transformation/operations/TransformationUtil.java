@@ -274,7 +274,13 @@ public final class TransformationUtil {
 
     }
 
-    private static boolean isThrow(Node node) {
+    /**
+     * Checks whether a node represents a throw, which CPG models as a unary operator.
+     *
+     * @param node the node to check
+     * @return whether the node is a throw
+     */
+    public static boolean isThrow(Node node) {
         return node instanceof UnaryOperator unaryOperator && "throw".equals(unaryOperator.getOperatorCode());
     }
 

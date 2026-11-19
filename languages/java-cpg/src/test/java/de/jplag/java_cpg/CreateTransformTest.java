@@ -1,6 +1,7 @@
 package de.jplag.java_cpg;
 
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeOptionalGetCall;
 import static de.jplag.java_cpg.transformation.matching.edges.Edges.BLOCK__STATEMENTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,6 +32,8 @@ import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
+import de.fraunhofer.aisec.cpg.graph.statements.AssertStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.DeclarationStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.BinaryOperator;
@@ -160,6 +163,53 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
         assertEogIntegrity(function);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"assert checked > 0;", "assert checked > 0 : detail;",
+            "assert System.nanoTime() > checked : System.nanoTime() + detail;",
+            "assert checked > 0 : input > 0 ? detail : 0;", "assert checked > 0 : input > 0 && detail > 0;"})
+    void dfgNormalizationPreservesAssertionsAndTheirDependencies(String assertion) throws Exception {
+        String source = """
+                class Example {
+                    static void test(int input) {
+                        int checked = input + 1;
+                        int detail = input + 2;
+                        %s
+                        System.out.println("after");
+                    }
+                }
+                """.formatted(assertion);
+        var before = testFunction(translate(source));
+        var after = testFunction(translate(source, true));
+        var nodes = SubgraphWalker.INSTANCE.flattenAST(after);
+        var retained = nodes.stream().filter(AssertStatement.class::isInstance).map(AssertStatement.class::cast).findFirst().orElseThrow();
+        var body = assertInstanceOf(Block.class, after.getBody());
+
+        assertEquals(callsIn(before), callsIn(after));
+        for (String name : assertion.contains("detail") ? List.of("checked", "detail") : List.of("checked")) {
+            var reference = SubgraphWalker.INSTANCE.flattenAST(retained).stream().filter(Reference.class::isInstance).map(Reference.class::cast)
+                    .filter(candidate -> name.equals(candidate.getName().getLocalName())).findFirst().orElseThrow();
+            var declaration = assertInstanceOf(VariableDeclaration.class, reference.getRefersTo());
+            assertTrue(nodes.stream().anyMatch(candidate -> candidate == declaration), () -> "Missing assertion dependency: " + name);
+            var definition = body.getStatements().stream().filter(DeclarationStatement.class::isInstance).map(DeclarationStatement.class::cast)
+                    .filter(statement -> statement.getDeclarations().contains(declaration)).findFirst().orElseThrow();
+            assertTrue(body.getStatements().indexOf(definition) < body.getStatements().indexOf(retained));
+        }
+        assertEogIntegrity(after);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"if (condition) { assert true; } else { System.out.println(1); }",
+            "if (condition) { System.out.println(1); } else { assert true; }", "while (System.nanoTime() > 0) { assert true; }"})
+    void assertionRemovalAllowsDfgNormalizationOfEmptyBranches(String statement) throws Exception {
+        String source = "class Example { static void test(boolean condition) { " + statement + " } }";
+        var before = testFunction(translate(source, false, removeAssertion));
+        var after = testFunction(translate(source, true, removeAssertion));
+
+        assertFalse(SubgraphWalker.INSTANCE.flattenAST(after).stream().anyMatch(AssertStatement.class::isInstance));
+        assertEquals(callsIn(before), callsIn(after));
+        assertEogIntegrity(after);
+    }
+
     private TranslationResult translate(String source, GraphTransformation... transformations) throws Exception {
         return translate(source, false, transformations);
     }
@@ -175,6 +225,10 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
     private static FunctionDeclaration testFunction(TranslationResult graph) {
         return SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(FunctionDeclaration.class::isInstance).map(FunctionDeclaration.class::cast)
                 .filter(function -> "test".equals(function.getName().getLocalName())).findFirst().orElseThrow();
+    }
+
+    private static List<String> callsIn(FunctionDeclaration function) {
+        return SubgraphWalker.INSTANCE.flattenAST(function).stream().filter(CallExpression.class::isInstance).map(Node::getCode).toList();
     }
 
     private static void assertEogIntegrity(FunctionDeclaration function) {
