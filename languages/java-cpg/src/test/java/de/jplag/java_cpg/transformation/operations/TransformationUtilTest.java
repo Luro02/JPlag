@@ -1,5 +1,6 @@
 package de.jplag.java_cpg.transformation.operations;
 
+import static de.jplag.java_cpg.transformation.matching.edges.Edges.BLOCK__STATEMENTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -9,6 +10,8 @@ import java.util.List;
 import java.util.Objects;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import de.fraunhofer.aisec.cpg.graph.Name;
 import de.fraunhofer.aisec.cpg.graph.Node;
@@ -18,6 +21,7 @@ import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Reference;
 import de.jplag.java_cpg.transformation.TransformationException;
+import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge;
 
 class TransformationUtilTest {
     @Test
@@ -49,6 +53,92 @@ class TransformationUtilTest {
     }
 
     @Test
+    void removalPreservesEveryPredecessorAndSuccessor() {
+        var first = node("first");
+        var second = node("second");
+        var removed = node("removed");
+        var taken = node("taken");
+        var skipped = node("skipped");
+        connect(first, removed, true);
+        connect(second, removed);
+        connect(removed, taken, true);
+        connect(removed, skipped, false);
+        var block = new Block();
+        block.setStatements(List.of(removed));
+
+        try (var context = new GraphMutationContext()) {
+            RemoveOperation.apply(block, removed, new CpgNthEdge<>(BLOCK__STATEMENTS, 0), true, context);
+        }
+
+        assertTrue(block.getStatements().isEmpty());
+        for (Node predecessor : List.of(first, second)) {
+            assertEquals(2, predecessor.getNextEOGEdges().size());
+            Boolean branch = predecessor == first ? true : null;
+            assertEdge(predecessor, taken, branch);
+            assertEdge(predecessor, skipped, branch);
+        }
+        assertEquals(2, taken.getPrevEOGEdges().size());
+        assertEquals(2, skipped.getPrevEOGEdges().size());
+        assertDetached(removed);
+    }
+
+    @Test
+    void consecutiveRemovalsUseCurrentPredecessors() {
+        var before = node("before");
+        var first = node("first");
+        var second = node("second");
+        var after = node("after");
+        connect(before, first, true);
+        connect(first, second);
+        connect(second, after);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.removeFromEog(first, context);
+            TransformationUtil.removeFromEog(second, context);
+        }
+
+        assertEquals(1, before.getNextEOGEdges().size());
+        assertEdge(before, after, true);
+        assertDetached(first, second);
+        assertEquals(1, after.getPrevEOGEdges().size());
+    }
+
+    @Test
+    void removalKeepsTheSurvivingDecisionLabel() {
+        var before = node("before");
+        var removed = node("removed");
+        var after = node("after");
+        connect(before, removed, true);
+        connect(removed, after, false);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.removeFromEog(removed, context);
+        }
+
+        assertEquals(1, before.getNextEOGEdges().size());
+        assertEdge(before, after, true);
+        assertDetached(removed);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, false, true", "false, true, true", "true, true, true", "false, false, false", ", true, true", "true, , true", ", , "})
+    void removalComposesReachability(Boolean incoming, Boolean outgoing, Boolean expected) {
+        var before = node("before");
+        var removed = node("removed");
+        var after = node("after");
+        connect(before, removed).addProperty(Properties.UNREACHABLE, incoming);
+        connect(removed, after).addProperty(Properties.UNREACHABLE, outgoing);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.removeFromEog(removed, context);
+        }
+
+        assertEquals(1, before.getNextEOGEdges().size());
+        var edge = assertEdge(before, after, null);
+        assertEquals(expected, edge.getProperty(Properties.UNREACHABLE));
+    }
+
+    @Test
     void replacementRejectsAmbiguousExitMappingBeforeDisconnecting() {
         var original = branchingNode("original");
         var replacement = branchingNode("replacement");
@@ -72,6 +162,31 @@ class TransformationUtilTest {
         assertEdge(originalSecond, skipped, null);
         assertEdge(replacementFirst, discarded, null);
         assertEdge(replacementSecond, discarded, null);
+    }
+
+    @Test
+    void consumingACutDoesNotConsumeAnEarlierCutWithTheSameEndpoints() {
+        var before = node("before");
+        var removed = node("removed");
+        var after = node("after");
+        connect(before, removed);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.disconnectPredecessors(removed, TransformationUtil.getEntry(removed), context);
+            var pendingOutgoing = before.getNextEOGEdges().getFirst();
+            var pendingIncoming = removed.getPrevEOGEdges().getFirst();
+            connect(before, removed, true);
+            connect(removed, after);
+
+            TransformationUtil.removeFromEog(removed, context);
+
+            assertTrue(before.getNextEOGEdges().stream().anyMatch(edge -> edge == pendingOutgoing));
+            assertTrue(removed.getPrevEOGEdges().stream().anyMatch(edge -> edge == pendingIncoming));
+            assertEdge(before, after, true);
+        }
+
+        assertEquals(1, before.getNextEOGEdges().size());
+        assertTrue(removed.getPrevEOGEdges().isEmpty());
     }
 
     @Test
