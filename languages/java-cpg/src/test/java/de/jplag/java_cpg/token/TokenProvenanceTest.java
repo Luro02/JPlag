@@ -1,9 +1,14 @@
 package de.jplag.java_cpg.token;
 
 import static de.jplag.SharedTokenType.FILE_END;
+import static de.jplag.java_cpg.token.CpgTokenType.ELSE_BLOCK_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.ELSE_BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
+import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.FOR_STATEMENT;
+import static de.jplag.java_cpg.token.CpgTokenType.IF_BLOCK_BEGIN;
+import static de.jplag.java_cpg.token.CpgTokenType.IF_BLOCK_END;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_BODY_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_BODY_END;
 import static de.jplag.java_cpg.token.CpgTokenType.METHOD_CALL;
@@ -18,10 +23,13 @@ import static de.jplag.java_cpg.token.TokenTestSupport.sourceOf;
 import static de.jplag.java_cpg.token.TokenTestSupport.tokensInMethod;
 import static de.jplag.java_cpg.token.TokenTestSupport.uniqueToken;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
+import static de.jplag.java_cpg.transformation.TransformationRepository.ifWithNegatedConditionResolution;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeAssertion;
+import static de.jplag.java_cpg.transformation.TransformationRepository.wrapElseStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForEachStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.wrapForStatement;
+import static de.jplag.java_cpg.transformation.TransformationRepository.wrapThenStatement;
 import static de.jplag.testutils.TokenUtils.tokensByFile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -34,6 +42,8 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import de.jplag.Token;
 import de.jplag.java_cpg.JavaCpgLanguage;
@@ -61,8 +71,10 @@ class TokenProvenanceTest {
     @Test
     void replacementRetainsEarlierTransformations() throws Exception {
         Token loop = uniqueToken(parseWithTransformations("verbosity/Compact.java", true, forStatementToWhileStatement), WHILE_STATEMENT);
+        Token wrappedBody = uniqueToken(parseWithTransformations("verbosity/Compact.java", false), FOR_BLOCK_BEGIN);
 
         assertTrue(names(loop).containsAll(List.of(wrapForStatement.name(), forStatementToWhileStatement.name())));
+        assertTrue(names(wrappedBody).containsAll(List.of(wrapThenStatement.name(), wrapForStatement.name())));
     }
 
     /**
@@ -79,6 +91,34 @@ class TokenProvenanceTest {
         assertTrue(names(bracedBodyCall).isEmpty());
         assertTrue(names(unbracedBodyCall).contains(wrapForEachStatement.name()));
         assertTrue(names(adjacentBlockCall).isEmpty());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, true", "true, false", "false, false", "true, true"})
+    void swappedBranchesKeepTheirOwnWrappingHistory(boolean bracedThen, boolean bracedElse, @TempDir Path directory) throws Exception {
+        Path file = directory.resolve("Branches.java");
+        String thenStatement = bracedThen ? "{ System.out.println(1); }" : "System.out.println(1);";
+        String elseStatement = bracedElse ? "{ System.out.println(2); }" : "System.out.println(2);";
+        Files.writeString(file, "class Branches { static void test(boolean condition) { if (!condition) " + thenStatement + " else "
+                + elseStatement + " System.out.println(3); } }");
+        var language = new JavaCpgLanguage().withNormalizations(List.of(ifWithNegatedConditionResolution));
+        var tokens = language.parse(Set.of(file.toFile()), true);
+        String swap = ifWithNegatedConditionResolution.name();
+        Set<String> thenHistory = bracedElse ? Set.of(swap) : Set.of(swap, wrapElseStatement.name());
+        Set<String> elseHistory = bracedThen ? Set.of(swap) : Set.of(swap, wrapThenStatement.name());
+
+        for (var type : List.of(IF_BLOCK_BEGIN, IF_BLOCK_END)) {
+            assertEquals(thenHistory, Set.copyOf(names(uniqueToken(tokens, type))));
+        }
+        for (var type : List.of(ELSE_BLOCK_BEGIN, ELSE_BLOCK_END)) {
+            assertEquals(elseHistory, Set.copyOf(names(uniqueToken(tokens, type))));
+        }
+        var calls = tokens.stream().filter(token -> token.getType() == METHOD_CALL).toList();
+        assertEquals(3, calls.size());
+        assertTrue(calls.get(0).getStartColumn() > calls.get(1).getStartColumn());
+        assertEquals(thenHistory, Set.copyOf(names(calls.get(0))));
+        assertEquals(elseHistory, Set.copyOf(names(calls.get(1))));
+        assertTrue(names(calls.get(2)).isEmpty());
     }
 
     @Test

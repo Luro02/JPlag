@@ -179,6 +179,7 @@ public interface GraphTransformation extends Normalization {
         private final GraphPattern targetPattern;
         private final String name;
         private final ExecutionPhase phase;
+        private final List<Role> newRoles;
         private final Map<Role, Role> sourceLocationRoles = new HashMap<>();
         private ExecutionOrder executionOrder;
 
@@ -187,6 +188,8 @@ public interface GraphTransformation extends Normalization {
             this.targetPattern = targetPattern;
             this.name = transformationName;
             this.phase = phase;
+            this.newRoles = new ArrayList<>(targetPattern.getAllRoles());
+            this.newRoles.removeAll(sourcePattern.getAllRoles());
             this.executionOrder = ExecutionOrder.DESCENDING_LOCATION;
         }
 
@@ -239,7 +242,7 @@ public interface GraphTransformation extends Normalization {
         }
 
         private GraphTransformation calculateTransformation() {
-            List<CreateNodeOperation<?>> newNodes = this.createNewNodes(sourcePattern, targetPattern);
+            List<CreateNodeOperation<?>> newNodes = this.createNewNodes();
             List<GraphOperation> ops = new ArrayList<>();
             sourcePattern.compareTo(targetPattern, (srcPattern, tgtPattern) -> compare(srcPattern, tgtPattern, null, ops, null));
 
@@ -280,7 +283,7 @@ public interface GraphTransformation extends Normalization {
 
                 if (!Objects.isNull(tgtRole) && !Objects.isNull(srcRole)) {
                     newSource = sourcePattern.getPattern(tgtRole, target.getRootClass());
-                    ops.add(new ReplaceOperation<>(parent, incomingEdge, newSource, disconnectEog));
+                    ops.add(new ReplaceOperation<>(parent, incomingEdge, newSource, disconnectEog, newRoles.contains(tgtRole)));
                 } else if (Objects.isNull(srcRole)) {
                     newSource = sourcePattern.getPattern(tgtRole, target.getRootClass());
                     if (incomingEdge instanceof CpgNthEdge<P, T> nthEdge) {
@@ -304,10 +307,7 @@ public interface GraphTransformation extends Normalization {
 
         }
 
-        private List<CreateNodeOperation<?>> createNewNodes(GraphPattern sourcePattern, GraphPattern targetPattern) {
-            List<Role> newRoles = new ArrayList<>(targetPattern.getAllRoles());
-            newRoles.removeAll(sourcePattern.getAllRoles());
-
+        private List<CreateNodeOperation<?>> createNewNodes() {
             List<CreateNodeOperation<?>> newNodes = new ArrayList<>();
             for (Role role : newRoles) {
                 // new node pattern needed for the transformation calculation

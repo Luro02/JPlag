@@ -30,6 +30,7 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
 
     private final NodePattern<? extends R> newChildPattern;
     private final boolean disconnectEog;
+    private final boolean inheritProvenance;
 
     /**
      * Constructs a new ReplaceOperation.
@@ -37,12 +38,14 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
      * @param edge edge of which the target shall be replaced
      * @param newChildPattern replacement node
      * @param disconnectEog if true, the replaced element is inserted into the EOG graph at the target
+     * @param inheritProvenance whether the replacement is newly created and should inherit the replaced node's history
      */
     public ReplaceOperation(NodePattern<? extends T> parentPattern, CpgEdge<T, R> edge, NodePattern<? extends R> newChildPattern,
-            boolean disconnectEog) {
+            boolean disconnectEog, boolean inheritProvenance) {
         super(parentPattern, edge);
         this.newChildPattern = newChildPattern;
         this.disconnectEog = disconnectEog;
+        this.inheritProvenance = inheritProvenance;
     }
 
     @Override
@@ -69,7 +72,10 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
         var tracker = mutationContext.getProvenanceTracker();
         tracker.record(parent);
         if (edge.isAst()) {
-            tracker.inherit(oldTarget, newTarget);
+            // Moved subtrees keep their own history, not that of the node they displace.
+            if (inheritProvenance) {
+                tracker.inherit(oldTarget, newTarget);
+            }
             tracker.recordSubtree(newTarget);
         }
 
@@ -102,13 +108,14 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
      * @return the replace operation
      */
     public <T2 extends Node> ReplaceOperation<T2, R> fromWildcardMatch(NodePattern<? extends T2> pattern, CpgEdge<T2, R> edge) {
-        return new ReplaceOperation<>(pattern, edge, this.newChildPattern, this.disconnectEog);
+        return new ReplaceOperation<>(pattern, edge, this.newChildPattern, this.disconnectEog, this.inheritProvenance);
     }
 
     @Override
     public GraphOperation instantiateAnyOfNEdge(Match match) {
         AnyOfNEdge<T, R> any1ofNEdge = (AnyOfNEdge<T, R>) edge;
-        return new ReplaceOperation<>(parentPattern, match.getEdge(this.parentPattern, any1ofNEdge), newChildPattern, this.disconnectEog);
+        return new ReplaceOperation<>(parentPattern, match.getEdge(this.parentPattern, any1ofNEdge), newChildPattern, this.disconnectEog,
+                this.inheritProvenance);
     }
 
 }
