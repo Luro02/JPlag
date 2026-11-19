@@ -83,6 +83,12 @@ public final class InsertOperation<T extends Node, R extends Node> extends Graph
 
         // Set AST edge
         List<PropertyEdge<R>> edges = nthEdge.getMultiEdge().getAllEdges(parent);
+        if (connectEog && index == edges.size() && !edges.isEmpty()) {
+            // This serves as an early check to ensure that distinct EOG successors are rejected before
+            // the AST is modified. This would otherwise be checked in insertAfter, but at that point
+            // it is too late.
+            TransformationUtil.getCommonSuccessor(edges.getLast().getEnd(), mutationContext);
+        }
         edges.add(index, newEdge);
         IntStream.range(index, edges.size()).forEach(i -> edges.get(i).addProperty(Properties.INDEX, i + 1));
         var tracker = mutationContext.getProvenanceTracker();
@@ -102,21 +108,13 @@ public final class InsertOperation<T extends Node, R extends Node> extends Graph
             return;
         }
 
-        if (0 == index && edges.size() > 1) {
+        if (index < edges.size() - 1) {
             // successor exists
-            R previouslyFirst = edges.get(index + 1).getEnd();
-            TransformationUtil.transferEogPredecessor(previouslyFirst, newTarget, mutationContext);
-            TransformationUtil.insertBefore(newTarget, previouslyFirst, mutationContext);
-        } else if (0 < index && index < edges.size() - 1) {
             R successor = edges.get(index + 1).getEnd();
-            TransformationUtil.transferEogPredecessor(successor, newTarget, mutationContext);
-            R predecessor = edges.get(index - 1).getEnd();
-            TransformationUtil.transferInsertionSuccessor(predecessor, newTarget, mutationContext);
             TransformationUtil.insertBefore(newTarget, successor, mutationContext);
         } else if (index == edges.size() - 1 && edges.size() > 1) {
             // predecessor exists
             R previouslyLast = edges.get(index - 1).getEnd();
-            TransformationUtil.transferInsertionSuccessor(previouslyLast, newTarget, mutationContext);
             TransformationUtil.insertAfter(newTarget, previouslyLast, mutationContext);
 
         }

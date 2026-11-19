@@ -16,6 +16,10 @@ import org.slf4j.LoggerFactory;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
+import de.fraunhofer.aisec.cpg.graph.statements.BreakStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ContinueStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.GotoStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
@@ -472,6 +476,11 @@ public final class TransformationUtil {
         return node instanceof UnaryOperator unaryOperator && "throw".equals(unaryOperator.getOperatorCode());
     }
 
+    private static List<Node> normalExits(Node node) {
+        return getEogBorders(node).getExits().stream().filter(exit -> !(exit instanceof ReturnStatement || exit instanceof BreakStatement
+                || exit instanceof ContinueStatement || exit instanceof GotoStatement || isThrow(exit))).toList();
+    }
+
     /**
      * Inserts the given {@link Node} before the given newSuccessor {@link Node} in the EOG graph.
      * @param target the node
@@ -480,32 +489,75 @@ public final class TransformationUtil {
      */
     public static void insertBefore(Node target, Node newSuccessor, GraphMutationContext mutationContext) {
         Node entry = getEntry(target);
-        List<Node> exits = getEogBorders(target).getExits();
-        disconnectFromPredecessor(target, mutationContext);
-        disconnectFromSuccessor(target, mutationContext);
+        List<Node> exits = normalExits(target);
+        // Detach the node from its current location
+        detachSubtree(target, entry, exits, mutationContext);
 
-        Node succEntry = getEntry(newSuccessor);
-        List<Node> newPreds = disconnectFromPredecessor(newSuccessor, mutationContext);
-        newPreds.forEach(pred -> connectNewSuccessor(pred, entry, false, mutationContext));
-        exits.forEach(exit -> connectNewSuccessor(exit, succEntry, false, mutationContext));
+        Node successorEntry = getEntry(newSuccessor);
+        // Detach the incoming connections to `newSuccessor`
+        List<DetachedEdge> incoming = disconnectPredecessors(newSuccessor, successorEntry, mutationContext);
+        // Insert the entry into those previously detached connections
+        connectInsertion(entry, exits, incoming, successorEntry, mutationContext);
     }
 
     /**
-     * Inserts the given {@link Node} after the given newSuccessor {@link Node} in the EOG graph.
+     * Inserts the given {@link Node} after the given newPredecessor {@link Node} in the EOG graph.
      * @param target the node
      * @param newPredecessor the new predecessor node
      * @param mutationContext graph mutation state owned by this translation
      */
     public static void insertAfter(Node target, Node newPredecessor, GraphMutationContext mutationContext) {
+        Node successor = getCommonSuccessor(newPredecessor, mutationContext);
         Node entry = getEntry(target);
-        Node exit = getExit(target);
-        disconnectFromPredecessor(target, mutationContext);
-        disconnectFromSuccessor(target, mutationContext);
+        if (successor == entry) {
+            return;
+        }
+        List<Node> exits = normalExits(target);
 
-        Node predExit = getExit(newPredecessor);
-        Node newSuccEntry = disconnectFromSuccessor(newPredecessor, mutationContext);
-        connectNewSuccessor(exit, newSuccEntry, false, mutationContext);
-        connectNewSuccessor(predExit, entry, false, mutationContext);
+        // Detach the node from its current location
+        detachSubtree(target, entry, exits, mutationContext);
+
+        // Detach the outgoing connections to `newPredecessor`
+        List<DetachedEdge> outgoing = disconnectSuccessors(newPredecessor, normalExits(newPredecessor), mutationContext);
+        // Insert the entry into those previously detached connections
+        connectInsertion(entry, exits, outgoing, successor, mutationContext);
+    }
+
+    private static void detachSubtree(Node target, Node entry, Collection<? extends Node> exits, GraphMutationContext mutationContext) {
+        disconnectPredecessors(target, entry, mutationContext);
+        disconnectSuccessors(target, exits, mutationContext);
+    }
+
+    /**
+     * Connects the inserted subtree at the detached boundary and clears temporary connections.
+     * @param entry the subtree entry
+     * @param exits the subtree's normal exits
+     * @param boundary the detached insertion boundary
+     * @param successor the following node, or {@code null}
+     * @param mutationContext graph mutation state owned by this translation
+     */
+    private static void connectInsertion(Node entry, List<? extends Node> exits, List<DetachedEdge> boundary, Node successor,
+            GraphMutationContext mutationContext) {
+        for (DetachedEdge detached : boundary) {
+            PropertyEdge<Node> connection = new PropertyEdge<>(detached.original());
+            connection.setEnd(entry);
+            connectEogEdge(connection, mutationContext);
+        }
+
+        if (successor != null) {
+            for (Node exit : exits) {
+                connectEogEdge(new PropertyEdge<>(exit, successor), mutationContext);
+            }
+        }
+
+        for (DetachedEdge edge : boundary) {
+            edge.clear(mutationContext);
+        }
+
+        clearDummyNeighbors(entry, mutationContext);
+        for (Node exit : exits) {
+            clearDummyNeighbors(exit, mutationContext);
+        }
     }
 
     private static void connectEogEdge(PropertyEdge<Node> edge, GraphMutationContext mutationContext) {
@@ -521,6 +573,69 @@ public final class TransformationUtil {
     public static void removeEogEdge(PropertyEdge<Node> edge) {
         edge.getStart().getNextEOGEdges().removeIf(candidate -> candidate == edge);
         edge.getEnd().getPrevEOGEdges().removeIf(candidate -> candidate == edge);
+    }
+
+    /**
+     * Gets the common successor of the given {@link Node} if it has one.
+     * <p>
+     * When all outgoing exit edges go to the same node, that node is their common successor.
+     * @param predecessor the subtree whose outgoing EOG edges are examined
+     * @param mutationContext graph mutation state owned by this translation
+     * @return the common successor, or {@code null} if there are no outgoing edges after filtering
+     * @throws TransformationException if the outgoing edges lead to distinct successor nodes
+     */
+    static Node getCommonSuccessor(Node predecessor, GraphMutationContext mutationContext) {
+        List<PropertyEdge<Node>> successors = getExitEdges(predecessor, normalExits(predecessor)).stream()
+                .filter(edge -> edge.getEnd() != mutationContext.getDummyNeighbor()).toList();
+        if (successors.isEmpty()) {
+            return null;
+        }
+        Node successor = successors.getFirst().getEnd();
+        // Merging distinct successors through one inserted subtree would lose their branch association.
+        //
+        // Consider the following evaluation order graph:
+        //
+        // beta -true--> X
+        // beta -false-> Y
+        //
+        // There are two possible destinations depending on what the result was.
+        //
+        // Now suppose we want to insert a node after beta while preserving both branch destinations.
+        //
+        // beta -> extra -> ?
+        //
+        // It is not obvious how to do this, for example one could connect them like this:
+        //
+        // beta -true--
+        // |
+        // |-> extra -> X or Y?
+        // |
+        // beta -false-
+        //
+        // When connecting extra to both X or Y, one would introduce paths that were not present before.
+        //
+        // Another solution may be to duplicate extra like this:
+        //
+        // beta -true--> extra -> X
+        // beta -false-> extra -> Y
+        //
+        // This would result in the correct destinations, but duplicating extra becomes an issue.
+        // The node may be the root of a subtree;
+        // - one would have to clone the entire tree, not only the root
+        // - adjust references (the subtree may introduce a variable which can have references)
+        // - represent both copies in the AST
+        // - track provenance and source locations correctly
+        //
+        // This is technically feasible, but a more involved effort. At the time of writing this,
+        // there seem to be no normalizations that require this.
+        //
+        // Therefore, this case is explicitly rejected. This ensures that with new normalizations that may
+        // require this, one can revisit this topic and introduce a solution.
+        if (successors.stream().anyMatch(edge -> edge.getEnd() != successor)) {
+            throw new TransformationException("Insertion after distinct EOG successors requires an explicit exit mapping");
+        }
+
+        return successor;
     }
 
     /**
@@ -583,10 +698,4 @@ public final class TransformationUtil {
         return result;
     }
 
-    static void transferInsertionSuccessor(Node otherPredecessor, Node predecessor, GraphMutationContext mutationContext) {
-        disconnectFromSuccessor(predecessor, mutationContext);
-        Node otherEntry = disconnectFromSuccessor(otherPredecessor, mutationContext);
-        Node exit = getExit(predecessor);
-        connectNewSuccessor(exit, otherEntry, true, mutationContext);
-    }
 }
