@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
@@ -239,6 +240,10 @@ public final class TransformationUtil {
         return detachEdges(getExitEdges(node, exits), mutationContext);
     }
 
+    /* package-private */ static List<DetachedEdge> disconnectPredecessors(Node node, Node entry, GraphMutationContext mutationContext) {
+        return detachEdges(getEntryEdges(node, entry), mutationContext);
+    }
+
     private static List<DetachedEdge> detachEdges(Collection<? extends PropertyEdge<Node>> edges, GraphMutationContext mutationContext) {
         var dummy = mutationContext.getDummyNeighbor();
         return edges.stream().filter(edge -> edge.getStart() != dummy && edge.getEnd() != dummy)
@@ -291,6 +296,47 @@ public final class TransformationUtil {
             if (edge.getEnd() == dummy) {
                 removeEogEdge(edge);
             }
+        }
+    }
+
+    private static PropertyEdge<Node> combineEogEdges(PropertyEdge<Node> incoming, PropertyEdge<Node> outgoing) {
+        PropertyEdge<Node> connection = new PropertyEdge<>(incoming);
+        connection.setEnd(outgoing.getEnd());
+
+        Object incomingUnreachable = incoming.getProperty(Properties.UNREACHABLE);
+        Object outgoingUnreachable = outgoing.getProperty(Properties.UNREACHABLE);
+        if (incomingUnreachable != null || outgoingUnreachable != null) {
+            connection.addProperty(Properties.UNREACHABLE, Boolean.TRUE.equals(incomingUnreachable) || Boolean.TRUE.equals(outgoingUnreachable));
+        }
+
+        return connection;
+    }
+
+    /**
+     * Disconnects the node from its surrounding EOG and connects each external predecessor directly to each external
+     * successor.
+     * @param node the subtree to remove from the evaluation flow
+     * @param mutationContext graph mutation state owned by this translation
+     */
+    static void removeFromEog(Node node, GraphMutationContext mutationContext) {
+        // First detach the incoming and outgoing edges for the node:
+        List<DetachedEdge> incoming = disconnectPredecessors(node, getEntry(node), mutationContext);
+        List<DetachedEdge> outgoing = disconnectSuccessors(node, getEogBorders(node).getExits(), mutationContext);
+
+        // Combine every incoming edge with every outgoing edge to form new edges:
+        for (DetachedEdge incomingEdge : incoming) {
+            for (DetachedEdge outgoingEdge : outgoing) {
+                PropertyEdge<Node> connection = combineEogEdges(incomingEdge.original(), outgoingEdge.original());
+                connectEogEdge(connection, mutationContext);
+            }
+        }
+
+        for (DetachedEdge edge : incoming) {
+            edge.clear(mutationContext);
+        }
+
+        for (DetachedEdge edge : outgoing) {
+            edge.clear(mutationContext);
         }
     }
 

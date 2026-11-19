@@ -2,6 +2,7 @@ package de.jplag.java_cpg;
 
 import static de.jplag.java_cpg.transformation.TransformationRepository.inlineSingleUseVariable;
 import static de.jplag.java_cpg.transformation.TransformationRepository.removeOptionalGetCall;
+import static de.jplag.java_cpg.transformation.matching.edges.Edges.BLOCK__STATEMENTS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -27,16 +28,19 @@ import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.BinaryOperator;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Reference;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.jplag.ParsingException;
 import de.jplag.java_cpg.transformation.GraphTransformation;
 import de.jplag.java_cpg.transformation.TransformationRepository;
 import de.jplag.java_cpg.transformation.matching.CpgIsomorphismDetector;
+import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge;
 import de.jplag.java_cpg.transformation.matching.pattern.GraphPattern;
 import de.jplag.java_cpg.transformation.matching.pattern.Match;
 
 import de.jplag.java_cpg.transformation.operations.GraphMutationContext;
+import de.jplag.java_cpg.transformation.operations.RemoveOperation;
 import de.jplag.java_cpg.transformation.operations.TransformationUtil;
 
 /**
@@ -97,6 +101,29 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
                         + operator + " second; } }",
                 operator, removeOptionalGetCall);
         assertInstanceOf(Reference.class, expression.getLhs());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"while(q) {}", "do {} while(q);"})
+    void removingAnInnerLoopKeepsTheOuterBranch(String loop) throws Exception {
+        var graph = translate("class Example { static void test(boolean p, boolean q) { if(p) { " + loop + " } int x = 1; } }");
+        var outer = SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(IfStatement.class::isInstance).map(IfStatement.class::cast).findFirst()
+                .orElseThrow();
+        var parent = (Block) outer.getThenStatement();
+        var removed = parent.getStatements().getFirst();
+        var unchanged = outer.getNextEOGEdges().stream().filter(edge -> !Boolean.TRUE.equals(edge.getProperty(Properties.BRANCH))).toList();
+
+        try (var context = new GraphMutationContext()) {
+            RemoveOperation.apply(parent, removed, new CpgNthEdge<>(BLOCK__STATEMENTS, 0), true, context);
+        }
+
+        assertTrue(parent.getStatements().isEmpty());
+        assertEquals(unchanged.size() + 1, outer.getNextEOGEdges().size());
+        unchanged.forEach(edge -> assertTrue(outer.getNextEOGEdges().stream().anyMatch(candidate -> candidate == edge)));
+        var taken = outer.getNextEOGEdges().stream().filter(edge -> Boolean.TRUE.equals(edge.getProperty(Properties.BRANCH))).findFirst()
+                .orElseThrow();
+        assertSame(parent, taken.getEnd());
+        assertTrue(parent.getPrevEOGEdges().stream().anyMatch(edge -> edge == taken));
     }
 
     private TranslationResult translate(String source, GraphTransformation... transformations) throws Exception {

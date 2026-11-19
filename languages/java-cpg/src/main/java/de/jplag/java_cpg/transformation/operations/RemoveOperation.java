@@ -104,12 +104,7 @@ public final class RemoveOperation<T extends Node, R extends Node> extends Graph
             return;
         }
 
-        List<Node> predExits = TransformationUtil.disconnectFromPredecessor(child, mutationContext);
-        Node succEntry = TransformationUtil.disconnectFromSuccessor(child, mutationContext);
-
-        if (!Objects.isNull(succEntry) && succEntry != mutationContext.getDummyNeighbor()) {
-            predExits.forEach(exit -> TransformationUtil.connectNewSuccessor(exit, succEntry, false, mutationContext));
-        }
+        TransformationUtil.removeFromEog(child, mutationContext);
     }
 
     @Override
