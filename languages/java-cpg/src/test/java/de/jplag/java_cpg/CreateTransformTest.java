@@ -12,6 +12,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -24,11 +27,15 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.TranslationResult;
+import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.statements.IfStatement;
+import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.BinaryOperator;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Reference;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.jplag.ParsingException;
@@ -126,6 +133,33 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
         assertTrue(parent.getPrevEOGEdges().stream().anyMatch(edge -> edge == taken));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void optionalRemovalPreservesTheJoinAfterAnIf(boolean reorder) throws Exception {
+        var graph = translate("""
+                import java.util.Optional;
+                class Example {
+                    static boolean test(boolean condition, Optional<Boolean> wrapped) {
+                        if (condition) { System.out.println("then"); }
+                        return wrapped.get();
+                    }
+                }
+                """, reorder, removeOptionalGetCall);
+        var function = testFunction(graph);
+        var nodes = SubgraphWalker.INSTANCE.flattenAST(function);
+        var conditional = nodes.stream().filter(IfStatement.class::isInstance).map(IfStatement.class::cast).findFirst().orElseThrow();
+        var returned = nodes.stream().filter(ReturnStatement.class::isInstance).map(ReturnStatement.class::cast).findFirst().orElseThrow();
+        var value = assertInstanceOf(Reference.class, returned.getReturnValue());
+        var thenExit = TransformationUtil.getEogBorders(conditional.getThenStatement()).getExits().getFirst();
+
+        assertEquals("wrapped", value.getName().getLocalName());
+        assertEquals(2, value.getPrevEOGEdges().size());
+        assertTrue(value.getPrevEOGEdges().stream().anyMatch(edge -> edge.getStart() == conditional));
+        assertTrue(value.getPrevEOGEdges().stream().anyMatch(edge -> edge.getStart() == thenExit));
+        assertTrue(value.getNextEOGEdges().stream().anyMatch(edge -> edge.getEnd() == returned));
+        assertEogIntegrity(function);
+    }
+
     private TranslationResult translate(String source, GraphTransformation... transformations) throws Exception {
         return translate(source, false, transformations);
     }
@@ -136,6 +170,42 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
         var adapter = new CpgAdapter(transformations);
         adapter.setReorderingEnabled(reorder);
         return adapter.translate(Set.of(file.toFile()));
+    }
+
+    private static FunctionDeclaration testFunction(TranslationResult graph) {
+        return SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(FunctionDeclaration.class::isInstance).map(FunctionDeclaration.class::cast)
+                .filter(function -> "test".equals(function.getName().getLocalName())).findFirst().orElseThrow();
+    }
+
+    private static void assertEogIntegrity(FunctionDeclaration function) {
+        List<Node> nodes = SubgraphWalker.INSTANCE.flattenAST(function);
+        Set<Node> astNodes = Collections.newSetFromMap(new IdentityHashMap<>());
+        astNodes.addAll(nodes);
+        Set<Node> reachable = Collections.newSetFromMap(new IdentityHashMap<>());
+        var pending = new ArrayDeque<Node>();
+        pending.add(function);
+        while (!pending.isEmpty()) {
+            Node node = pending.removeFirst();
+            if (reachable.add(node)) {
+                pending.addAll(node.getNextEOG());
+            }
+        }
+
+        for (Node node : nodes) {
+            for (var edge : node.getNextEOGEdges()) {
+                assertSame(node, edge.getStart());
+                assertTrue(astNodes.contains(edge.getEnd()));
+                assertTrue(edge.getEnd().getPrevEOGEdges().stream().anyMatch(incoming -> incoming == edge));
+            }
+            for (var edge : node.getPrevEOGEdges()) {
+                assertSame(node, edge.getEnd());
+                assertTrue(astNodes.contains(edge.getStart()));
+                assertTrue(edge.getStart().getNextEOGEdges().stream().anyMatch(outgoing -> outgoing == edge));
+            }
+            if (node instanceof CallExpression || node instanceof ReturnStatement) {
+                assertTrue(reachable.contains(node), () -> "Unreachable from the function's EOG entry: " + node.getCode());
+            }
+        }
     }
 
     private BinaryOperator assertBranches(String source, String operator, GraphTransformation transformation) throws Exception {

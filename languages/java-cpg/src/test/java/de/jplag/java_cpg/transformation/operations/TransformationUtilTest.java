@@ -61,6 +61,143 @@ class TransformationUtilTest {
         assertDetached(original);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void replacementPreservesAllIncomingEdges(boolean sharedPredecessor) {
+        var first = node("first");
+        var second = sharedPredecessor ? first : node("second");
+        var original = node("original");
+        var replacement = node("replacement");
+        var previous = node("previous");
+        var unrelated = node("unrelated");
+        var taken = connect(first, original, true);
+        taken.addProperty(Properties.UNREACHABLE, true);
+        connect(second, original, false);
+        connect(previous, replacement);
+        var unchanged = connect(first, unrelated);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.transferEogPredecessor(original, replacement, context);
+        }
+
+        assertSame(taken, assertEdge(first, replacement, true));
+        assertEdge(second, replacement, false);
+        assertEquals(Boolean.TRUE, taken.getProperty(Properties.UNREACHABLE));
+        assertEquals(2, replacement.getPrevEOGEdges().size());
+        assertSame(unchanged, assertEdge(first, unrelated, null));
+        assertTrue(original.getPrevEOGEdges().isEmpty());
+        assertTrue(previous.getNextEOGEdges().isEmpty());
+    }
+
+    @Test
+    void promotingAnExistingEntryPreservesIncomingEdgeIdentity() {
+        var first = node("first");
+        var second = node("second");
+        var replacement = node("replacement");
+        var original = new Block();
+        original.setStatements(List.of(replacement));
+        var taken = connect(first, replacement, true);
+        taken.addProperty(Properties.UNREACHABLE, true);
+        var skipped = connect(second, replacement, false);
+
+        assertSame(replacement, TransformationUtil.getEntry(original));
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.transferEogPredecessor(original, replacement, context);
+        }
+
+        assertEquals(2, replacement.getPrevEOGEdges().size());
+        assertSame(taken, assertEdge(first, replacement, true));
+        assertSame(skipped, assertEdge(second, replacement, false));
+        assertEquals(1, first.getNextEOGEdges().size());
+        assertEquals(1, second.getNextEOGEdges().size());
+        assertEquals(Boolean.TRUE, taken.getProperty(Properties.UNREACHABLE));
+    }
+
+    @Test
+    void replacingAMovedNodeUsesItsCurrentIncomingEdge() {
+        var before = node("before");
+        var moved = node("moved");
+        var after = node("after");
+        var destinationPredecessor = node("destinationPredecessor");
+        var destination = node("destination");
+        var replacement = node("replacement");
+        var historical = connect(before, moved, false);
+        connect(moved, after);
+        connect(destinationPredecessor, destination, true);
+        PropertyEdge<Node> current;
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.insertBefore(moved, destination, context);
+            current = assertEdge(destinationPredecessor, moved, true);
+            assertSame(context.getDummyNeighbor(), historical.getEnd());
+
+            TransformationUtil.transferEogPredecessor(moved, replacement, context);
+
+            assertSame(context.getDummyNeighbor(), historical.getEnd());
+            assertSame(replacement, current.getEnd());
+        }
+
+        assertSame(current, assertEdge(destinationPredecessor, replacement, true));
+        assertEquals(1, destinationPredecessor.getNextEOGEdges().size());
+        assertEquals(1, replacement.getPrevEOGEdges().size());
+        assertTrue(before.getNextEOGEdges().isEmpty());
+        assertTrue(moved.getPrevEOGEdges().isEmpty());
+        assertTrue(after.getPrevEOGEdges().isEmpty());
+        assertEdge(moved, destination, null);
+    }
+
+    @Test
+    void replacementDoesNotConsumeAnUnrelatedCutFromTheSamePredecessor() {
+        var before = node("before");
+        var pending = node("pending");
+        var original = node("original");
+        var replacement = node("replacement");
+        var pendingOutgoing = connect(before, pending, false);
+        var transferred = connect(before, original, true);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.disconnectPredecessors(pending, TransformationUtil.getEntry(pending), context);
+            var pendingIncoming = pending.getPrevEOGEdges().getFirst();
+
+            TransformationUtil.transferEogPredecessor(original, replacement, context);
+
+            assertSame(context.getDummyNeighbor(), pendingOutgoing.getEnd());
+            assertSame(pendingIncoming, pending.getPrevEOGEdges().getFirst());
+            assertTrue(context.getDummyNeighbor().getPrevEOGEdges().stream().anyMatch(edge -> edge == pendingOutgoing));
+            assertTrue(context.getDummyNeighbor().getNextEOGEdges().stream().anyMatch(edge -> edge == pendingIncoming));
+            assertSame(transferred, assertEdge(before, replacement, true));
+            assertEquals(1, replacement.getPrevEOGEdges().size());
+        }
+
+        assertSame(transferred, assertEdge(before, replacement, true));
+        assertEquals(1, before.getNextEOGEdges().size());
+        assertEquals(1, replacement.getPrevEOGEdges().size());
+        assertTrue(pending.getPrevEOGEdges().isEmpty());
+        assertTrue(original.getPrevEOGEdges().isEmpty());
+    }
+
+    @Test
+    void consecutiveReplacementsUseCurrentEdges() {
+        var before = node("before");
+        var original = node("original");
+        var first = node("first");
+        var second = node("second");
+        var after = node("after");
+        var incoming = connect(before, original, true);
+        connect(original, after);
+
+        try (var context = new GraphMutationContext()) {
+            TransformationUtil.transferEogPredecessor(original, first, context);
+            TransformationUtil.transferEogSuccessor(original, first, context);
+            TransformationUtil.transferEogPredecessor(first, second, context);
+            TransformationUtil.transferEogSuccessor(first, second, context);
+        }
+
+        assertSame(incoming, assertEdge(before, second, true));
+        assertEdge(second, after, null);
+        assertDetached(original, first);
+    }
+
     @Test
     void removalPreservesEveryPredecessorAndSuccessor() {
         var first = node("first");

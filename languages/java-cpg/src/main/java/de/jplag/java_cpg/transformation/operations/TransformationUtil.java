@@ -120,10 +120,19 @@ public final class TransformationUtil {
 
     }
 
-    static void transferEogPredecessor(Node oldSuccessor, Node newSuccessor, GraphMutationContext mutationContext) {
-        List<Node> exits = disconnectFromPredecessor(oldSuccessor, mutationContext);
-        disconnectFromPredecessor(newSuccessor, mutationContext);
-        exits.forEach(exit -> connectNewSuccessor(exit, newSuccessor, true, mutationContext));
+    static void transferEogPredecessor(Node original, Node replacement, GraphMutationContext mutationContext) {
+        Node originalEntry = getEntry(original);
+        Node replacementEntry = getEntry(replacement);
+        // A moved node must be replaced at its current location, not at a saved earlier boundary.
+        List<DetachedEdge> incoming = disconnectPredecessors(original, originalEntry, mutationContext);
+        disconnectPredecessors(replacement, replacementEntry, mutationContext);
+        // Clearing during each reconnection would erase earlier join predecessors.
+        getEntryEdges(replacement, replacementEntry).forEach(TransformationUtil::removeEogEdge);
+
+        for (DetachedEdge edge : incoming) {
+            retargetEogEdge(edge.outgoing(), replacementEntry);
+            edge.clear(mutationContext);
+        }
     }
 
     /**
@@ -237,6 +246,17 @@ public final class TransformationUtil {
             dummyEdge.getStart().addNextEOG(dummyEdge);
         });
         return predExits;
+    }
+
+    /**
+     * Changes an EOG edge's target while maintaining reciprocal adjacency.
+     * @param edge the attached EOG edge
+     * @param target the new target
+     */
+    public static void retargetEogEdge(PropertyEdge<Node> edge, Node target) {
+        edge.getEnd().getPrevEOGEdges().removeIf(candidate -> candidate == edge);
+        edge.setEnd(target);
+        target.addPrevEOG(edge);
     }
 
     private static List<DetachedEdge> disconnectSuccessors(Node node, Collection<? extends Node> exits, GraphMutationContext mutationContext) {
