@@ -350,11 +350,11 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
     ) {
         // save entry point to keep EOG graph intact at the end
         val entry = TransformationUtil.getEogBorders(parent.statements[0]).entries[0]
-        val eogPred = TransformationUtil.getEntryEdges(parent, entry, false, mutationContext)
+        val eogPred = TransformationUtil.getEntryEdges(parent, entry)
             .map { it.start }
 
         val exit = TransformationUtil.getEogBorders(parent.statements.last()).exits[0]
-        val eogSucc = TransformationUtil.getExitEdges(parent, listOf(exit), false, mutationContext)
+        val eogSucc = TransformationUtil.getExitEdges(parent, listOf(exit))
             .map { it.end }
 
         val worklist = mutableListOf<Statement>()
@@ -385,7 +385,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
                 // Implicit return statement has no location, but should remain the last element
                 val newSuccessor = done[0]
                 try {
-                    if (!TransformationUtil.isAstSuccessor(element, newSuccessor, mutationContext)) {
+                    if (!TransformationUtil.isAstSuccessor(element, newSuccessor)) {
                         TransformationUtil.insertBefore(element, newSuccessor, mutationContext)
                     }
                 } finally {
@@ -425,7 +425,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
 
         //rebuild EOG edges into the block
         eogPred.filterNot { it === mutationContext.dummyNeighbor }
-            .filterNot { TransformationUtil.isEogSuccessor(it, newEntry, mutationContext) }
+            .filterNot { TransformationUtil.isEogSuccessor(it, newEntry) }
             .forEach {
                 val edge = it.nextEOGEdges.find { e -> e.end === mutationContext.dummyNeighbor }!!
                 mutationContext.dummyNeighbor.prevEOGEdges.remove(edge)
@@ -440,7 +440,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
                 it.start.nextEOGEdges.remove(it)
                 it.end.prevEOGEdges.remove(it)
             }
-            eogSucc.filter { succ -> !TransformationUtil.isEogSuccessor(exit, succ, mutationContext) }
+            eogSucc.filter { succ -> !TransformationUtil.isEogSuccessor(exit, succ) }
                 .forEach {
                     val edge = it.prevEOGEdges.find { e -> e.start === mutationContext.dummyNeighbor }!!
                     edge.start = newExit

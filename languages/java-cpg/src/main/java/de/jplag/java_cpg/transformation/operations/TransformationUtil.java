@@ -1,8 +1,9 @@
 package de.jplag.java_cpg.transformation.operations;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.SequencedCollection;
@@ -259,7 +260,7 @@ public final class TransformationUtil {
     @NotNull
     public static List<PropertyEdge<Node>> getEntryEdges(Node astParent, Node entry, boolean useDummies, GraphMutationContext mutationContext) {
         DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        List<PropertyEdge<Node>> currentEntryEdges = entry.getPrevEOGEdges().stream().filter(e -> !isAstChild(astParent, e.getStart())).toList();
+        List<PropertyEdge<Node>> currentEntryEdges = getEntryEdges(astParent, entry);
         List<PropertyEdge<Node>> disconnectedEdges = currentEntryEdges.stream().filter(e -> e.getStart().equals(dummy)).toList();
 
         List<PropertyEdge<Node>> originalEntryEdges = dummy.getOriginalEdgeOfTarget(entry);
@@ -278,6 +279,18 @@ public final class TransformationUtil {
     }
 
     /**
+     * Gets the EOG entry edges to the AST subtree represented by astParent, that connect to the given entry node.
+     * @param astParent the root of the AST subtree
+     * @param entry the EOG entry to the astParent
+     * @return the entry edges
+     */
+    @NotNull
+    public static List<PropertyEdge<Node>> getEntryEdges(Node astParent, Node entry) {
+        List<Node> astNodes = SubgraphWalker.INSTANCE.flattenAST(astParent);
+        return entry.getPrevEOGEdges().stream().filter(edge -> !astNodes.contains(edge.getStart())).toList();
+    }
+
+    /**
      * Gets the EOG exit edges to the AST subtree represented by astParent, that connect to the given entry node.
      * @param astParent the root of the AST subtree
      * @param exits the EOG exit nodes of the astParent
@@ -289,8 +302,7 @@ public final class TransformationUtil {
     @NotNull
     public static List<PropertyEdge<Node>> getExitEdges(Node astParent, List<Node> exits, boolean useDummies, GraphMutationContext mutationContext) {
         DummyNeighbor dummy = mutationContext.getDummyNeighbor();
-        List<PropertyEdge<Node>> currentExitEdges = exits.stream().flatMap(n -> n.getNextEOGEdges().stream())
-                .filter(e -> !isAstChild(astParent, e.getEnd()) || (astParent instanceof Block && e.getEnd() == astParent)).toList();
+        List<PropertyEdge<Node>> currentExitEdges = getExitEdges(astParent, exits);
         List<PropertyEdge<Node>> disconnectedEdges = currentExitEdges.stream().filter(e -> e.getEnd().equals(dummy)).toList();
 
         List<PropertyEdge<Node>> originalEdges = exits.stream().map(dummy::getOriginalEdgeOfSource).flatMap(List::stream).toList();
@@ -305,6 +317,20 @@ public final class TransformationUtil {
             exits.forEach(dummy::clearOriginalEdgesOfTarget);
             return originalEdges;
         }
+
+    }
+
+    /**
+     * Gets the EOG exit edges to the AST subtree represented by astParent, that connect to the given exit node.
+     * @param astParent the root of the AST subtree
+     * @param exits the EOG exit nodes of the astParent
+     * @return the exit edges
+     */
+    @NotNull
+    public static List<PropertyEdge<Node>> getExitEdges(Node astParent, Collection<? extends Node> exits) {
+        List<Node> astNodes = SubgraphWalker.INSTANCE.flattenAST(astParent);
+        return exits.stream().flatMap(exit -> exit.getNextEOGEdges().stream())
+                .filter(edge -> !astNodes.contains(edge.getEnd()) || astParent instanceof Block && edge.getEnd() == astParent).toList();
 
     }
 
@@ -348,30 +374,28 @@ public final class TransformationUtil {
      * Returns true if the {@code maybeSuccessor} {@link Node} is the AST neighbor following the {@code element} node.
      * @param element a {@link Node} object
      * @param maybeSuccessor the potential successor {@link Node}
-     * @param mutationContext graph mutation state owned by this translation
      * @return true if {@code maybeSuccessor} is an AST successor of {@code element}
      */
-    public static boolean isAstSuccessor(Node element, Node maybeSuccessor, GraphMutationContext mutationContext) {
+    public static boolean isAstSuccessor(Node element, Node maybeSuccessor) {
         // If maybeSuccessor is the AST successor of element, then an exit edge of element points to maybeSuccessor
         // The exit is likely to be a child node, not element itself
         List<Node> exits = getEogBorders(element).getExits();
         Node entry = getEntry(maybeSuccessor);
-        List<PropertyEdge<Node>> entryEdges = getEntryEdges(maybeSuccessor, entry, false, mutationContext);
+        List<PropertyEdge<Node>> entryEdges = getEntryEdges(maybeSuccessor, entry);
 
         return entryEdges.stream().anyMatch(e -> exits.contains(e.getStart()));
     }
 
     /**
-     * Returns true if the {@code maybeSuccessor} {@link Node} is the EOG successor of the {@code element} node.
+     * Returns true if the {@code maybeSuccessor} {@link Node} is the EOG successor of the {@code exit} node.
      * @param exit a {@link Node} object
      * @param maybeSuccessor the potential successor {@link Node}
-     * @param mutationContext graph mutation state owned by this translation
-     * @return true if {@code maybeSuccessor} is the EOG successor of {@code element}
+     * @return true if {@code maybeSuccessor} is the EOG successor of {@code exit}
      */
-    public static boolean isEogSuccessor(Node exit, Node maybeSuccessor, GraphMutationContext mutationContext) {
+    public static boolean isEogSuccessor(Node exit, Node maybeSuccessor) {
         // Unlike isAstSuccessor, we check for edges from exit directly
         Node entry = getEntry(maybeSuccessor);
-        List<PropertyEdge<Node>> entryEdges = getEntryEdges(maybeSuccessor, entry, false, mutationContext);
+        List<PropertyEdge<Node>> entryEdges = getEntryEdges(maybeSuccessor, entry);
 
         return entryEdges.stream().anyMatch(e -> exit == e.getStart());
     }
@@ -385,18 +409,22 @@ public final class TransformationUtil {
      * @return the list of successors with no successors
      */
     private static <T> List<T> worklist(Collection<T> initialList, Function<T, ? extends List<T>> successorFunction) {
-        List<T> seen = new ArrayList<>(initialList);
-        List<T> worklist = new LinkedList<>(initialList);
+        Collection<T> seen = new ArrayList<>(initialList);
+        Deque<T> worklist = new ArrayDeque<>(initialList);
         List<T> result = new ArrayList<>();
         while (!worklist.isEmpty()) {
             T element = worklist.removeFirst();
             List<T> successors = successorFunction.apply(element);
             if (successors.isEmpty()) {
                 result.add(element);
-            } else {
-                successors.removeAll(seen);
-                worklist.addAll(successors);
-                seen.addAll(successors);
+                continue;
+            }
+
+            for (T successor : successors) {
+                if (!seen.contains(successor)) {
+                    seen.add(successor);
+                    worklist.addLast(successor);
+                }
             }
         }
         return result;
