@@ -14,6 +14,7 @@ mockParser()
 import { reportStore } from '../../../src/stores/reportStore'
 import { setActivePinia, createPinia } from 'pinia'
 import { router } from '../../../src/router'
+import { NormalizationAnalysisFactory } from '@jplag/parser'
 
 describe('Test Report File Handling', () => {
   beforeEach(() => {
@@ -111,6 +112,42 @@ describe('Test Report File Handling', () => {
     expect(test2StructureJava?.matchedTokenCount).toEqual(138)
     expect(test1SubmissionJava?.matchedTokenCount).toEqual(90)
     expect(test2SubmissionJava?.matchedTokenCount).toEqual(85)
+  })
+
+  it('Loads optional normalization data only when requested and clears it for ordinary reports', () => {
+    const analysis = {
+      configurations: [
+        { id: 'baseline', name: 'Baseline', normalizations: [], normalize: false },
+        { id: 'normalized', name: 'Fully normalized', normalizations: ['loop'], normalize: true }
+      ],
+      baselineConfigurationId: 'baseline',
+      submissions: { test1: 'normalization/test1.json' }
+    }
+    const submission = { streams: [] }
+    reportStore().loadReport(
+      [
+        ...mockFiles,
+        { fileName: 'normalizationAnalysis.json', data: JSON.stringify(analysis) },
+        { fileName: 'normalization/test1.json', data: JSON.stringify(submission) }
+      ],
+      submissionFiles,
+      'analysis'
+    )
+
+    expect(NormalizationAnalysisFactory.getAnalysis).not.toHaveBeenCalled()
+    expect(NormalizationAnalysisFactory.getSubmission).not.toHaveBeenCalled()
+    expect(reportStore().getNormalizationAnalysis()).toEqual(analysis)
+    expect(reportStore().getNormalizationSubmission('test1')).toEqual(submission)
+    expect(reportStore().getNormalizationSubmission('test2')).toBeUndefined()
+    expect(reportStore().getSubmissionFiles('test1')).toEqual(
+      submissionFiles.filter((file) => file.submissionId === 'test1')
+    )
+
+    reportStore().loadReport(mockFiles, [], 'ordinary')
+    expect(reportStore().getNormalizationAnalysis()).toBeUndefined()
+    expect(reportStore().getNormalizationSubmission('test1')).toBeUndefined()
+    reportStore().reset()
+    expect(reportStore().getSubmissionFiles('test1')).toEqual([])
   })
 
   it('Test old version in runInformation', () => {

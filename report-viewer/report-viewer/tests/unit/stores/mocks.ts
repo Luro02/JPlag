@@ -48,6 +48,10 @@ export function mockParser() {
     DistributionFactory: {
       getDistributions: vi.fn().mockReturnValue(mockDistributions)
     },
+    NormalizationAnalysisFactory: {
+      getAnalysis: vi.fn((data: string) => JSON.parse(data)),
+      getSubmission: vi.fn((data: string) => JSON.parse(data))
+    },
     OptionsFactory: {
       getCliOptions: vi.fn().mockReturnValue(mockOptions)
     },

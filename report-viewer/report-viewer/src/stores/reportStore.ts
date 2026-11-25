@@ -15,6 +15,7 @@ import {
   ClusterFactory,
   ComparisonFactory,
   DistributionFactory,
+  NormalizationAnalysisFactory,
   OptionsFactory,
   RunInformationFactory,
   SubmissionMappingsFactory,
@@ -44,6 +45,7 @@ export const reportStore = defineStore('reportStore', () => {
     _submissionFiles: SubmissionFile[],
     fileName: string
   ): boolean {
+    files.value.delete('normalizationAnalysis.json')
     _files.forEach((f) => files.value.set(f.fileName, f))
     reportFileName.value = fileName
     // check for version and redirect to old version if neccessary
@@ -136,6 +138,20 @@ export const reportStore = defineStore('reportStore', () => {
       filesOfSecondSubmission
     )
   }
+  function getNormalizationAnalysis() {
+    const file = files.value.get('normalizationAnalysis.json')
+    return file ? NormalizationAnalysisFactory.getAnalysis(file.data) : undefined
+  }
+
+  function getNormalizationSubmission(submissionId: string) {
+    const path = getNormalizationAnalysis()?.submissions[submissionId]
+    return path ? NormalizationAnalysisFactory.getSubmission(getFile(path).data) : undefined
+  }
+
+  function getSubmissionFiles(submissionId: string) {
+    return submissionFiles.value.get(submissionId) ?? []
+  }
+
   function getBaseCodeReport(submissionId: string) {
     const baseCodeFile = getFile(`basecode/${submissionId}.json`)
     return BaseCodeReportFactory.getReport(baseCodeFile.data)
@@ -301,7 +317,10 @@ export const reportStore = defineStore('reportStore', () => {
     allAreAnonymized,
     setAnonymous,
     getBaseCodeReport,
-    getSubmissionIds
+    getSubmissionIds,
+    getNormalizationAnalysis,
+    getNormalizationSubmission,
+    getSubmissionFiles
   }
 })
 
