@@ -3,8 +3,10 @@ package de.jplag;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.ToDoubleFunction;
 
+import de.jplag.analysis.NormalizationSnapshot;
 import de.jplag.clustering.ClusteringResult;
 import de.jplag.options.JPlagOptions;
 import de.jplag.options.SimilarityMetric;
@@ -28,6 +30,8 @@ public class JPlagResult {
 
     private List<ClusteringResult<Submission>> clusteringResult;
 
+    private NormalizationSnapshot normalizationAnalysis;
+
     private static final int SIMILARITY_DISTRIBUTION_SIZE = 100;
 
     /**
@@ -44,6 +48,22 @@ public class JPlagResult {
         this.durationInMillis = durationInMillis;
         this.options = options;
         similarityDistribution = calculateSimilarityDistribution(comparisons);
+    }
+
+    /**
+     * Returns optional inspector data captured during normalization analysis.
+     * @return the detached analysis snapshot, if analysis was requested
+     */
+    public Optional<NormalizationSnapshot> getNormalizationAnalysis() {
+        return Optional.ofNullable(normalizationAnalysis);
+    }
+
+    /**
+     * Attaches detached normalization inspector data to the reporting result.
+     * @param normalizationAnalysis the analysis snapshot
+     */
+    public void setNormalizationAnalysis(NormalizationSnapshot normalizationAnalysis) {
+        this.normalizationAnalysis = normalizationAnalysis;
     }
 
     /**

@@ -26,6 +26,7 @@ import de.jplag.options.JPlagOptions;
 import de.jplag.reporting.FilePathUtil;
 import de.jplag.reporting.jsonfactory.BaseCodeReportWriter;
 import de.jplag.reporting.jsonfactory.ComparisonReportWriter;
+import de.jplag.reporting.jsonfactory.NormalizationReportWriter;
 import de.jplag.reporting.reportobject.mapper.ClusteringResultMapper;
 import de.jplag.reporting.reportobject.mapper.MetricMapper;
 import de.jplag.reporting.reportobject.model.Cluster;
@@ -93,7 +94,8 @@ public class ReportObjectFactory {
         logger.info("Start writing report...");
         buildSubmissionToIdMap(result);
 
-        copySubmissionFilesToReport(result);
+        Map<Path, Map<Path, String>> archivedFiles = copySubmissionFilesToReport(result);
+        writeNormalizationReport(result, archivedFiles);
 
         writeComparisons(result);
 
@@ -116,20 +118,27 @@ public class ReportObjectFactory {
         submissionToIdFunction = (Submission submission) -> submissionNameToIdMap.get(submission.getName());
     }
 
-    private void copySubmissionFilesToReport(JPlagResult result) {
+    private Map<Path, Map<Path, String>> copySubmissionFilesToReport(JPlagResult result) {
+        Map<Path, Map<Path, String>> archivedFiles = new HashMap<>();
         logger.info("Start to export results...");
         List<JPlagComparison> comparisons = result.getComparisons(result.getOptions().maximumNumberOfComparisons());
         Set<Submission> submissions = getSubmissions(comparisons);
         Language language = result.getOptions().language();
         for (Submission submission : submissions) {
+            Path submissionRoot = submission.getRoot().toPath().toAbsolutePath().normalize();
             for (File file : submission.getFiles()) {
                 Path filePath = FilePathUtil.getRelativeSubmissionPath(file, submission, submissionToIdFunction);
                 Path resultPath = SUBMISSIONS_ROOT_PATH.resolve(filePath);
 
                 File fileToCopy = getFileToCopy(language, file);
                 this.resultWriter.addFileContentEntry(resultPath, fileToCopy);
+                if (result.getNormalizationAnalysis().isPresent() && fileToCopy.isFile()) {
+                    archivedFiles.computeIfAbsent(submissionRoot, key -> new HashMap<>()).put(file.toPath().toAbsolutePath().normalize(),
+                            FilePathUtil.pathAsZipPath(filePath));
+                }
             }
         }
+        return archivedFiles;
     }
 
     private File getFileToCopy(Language language, File file) {
@@ -139,6 +148,19 @@ public class ReportObjectFactory {
     private void writeComparisons(JPlagResult result) {
         ComparisonReportWriter comparisonReportWriter = new ComparisonReportWriter(submissionToIdFunction, this.resultWriter);
         submissionNameToNameToComparisonFileName = comparisonReportWriter.writeComparisonReports(result);
+    }
+
+    private void writeNormalizationReport(JPlagResult result, Map<Path, Map<Path, String>> archivedFiles) {
+        result.getNormalizationAnalysis().ifPresent(analysis -> {
+            Set<Submission> submissions = getSubmissions(result.getComparisons(result.getOptions().maximumNumberOfComparisons()));
+            Map<Path, String> submissionIds = new HashMap<>();
+            for (Submission submission : submissions) {
+                Path submissionRoot = submission.getRoot().toPath().toAbsolutePath().normalize();
+                submissionIds.put(submissionRoot, submissionToIdFunction.apply(submission));
+            }
+            NormalizationReportWriter normalizationReportWriter = new NormalizationReportWriter(resultWriter);
+            normalizationReportWriter.write(analysis, submissionIds, archivedFiles);
+        });
     }
 
     private void writeBaseCodeReport(JPlagResult result) {

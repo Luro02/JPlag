@@ -17,7 +17,10 @@ public final class NormalizationAnalysis {
     }
 
     public static JPlagResult run(NormalizableLanguage language, JPlagOptions options) throws ExitException {
-        return analyze(language, options).reportingRun().result();
+        Result analysis = analyze(language, options);
+        JPlagResult result = analysis.reportingRun().result();
+        result.setNormalizationAnalysis(NormalizationSnapshot.from(analysis));
+        return result;
     }
 
     public static Result analyze(NormalizableLanguage language, JPlagOptions options) throws ExitException {
