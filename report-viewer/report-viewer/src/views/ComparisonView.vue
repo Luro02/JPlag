@@ -3,10 +3,10 @@
 -->
 <template>
   <div
-    class="grid grid-cols-1 grid-rows-[min-content_auto_auto] gap-5 md:grid-cols-2 md:grid-rows-[auto_1fr] md:overflow-hidden"
+    class="grid min-h-0 grid-cols-1 grid-rows-[min-content_auto_auto] gap-5 md:grid-cols-2 md:grid-rows-[auto_1fr] md:overflow-hidden"
   >
     <ContainerComponent class="col-start-1 row-start-1 md:col-end-3 md:row-end-2">
-      <h2>
+      <h2 class="text-2xl">
         Comparison:
         {{ reportStore().getDisplayName(comparison.firstSubmissionId) }}
         -
@@ -77,25 +77,61 @@
           ></TextInformation
         >
       </div>
-      <MatchList
-        :display-name1="reportStore().getDisplayName(comparison.firstSubmissionId)"
-        :display-name2="reportStore().getDisplayName(comparison.secondSubmissionId)"
-        :matches="comparison.allMatches"
-        :basecode-in-first="firstBaseCodeMatches"
-        :basecode-in-second="secondBaseCodeMatches"
-        @match-selected="showMatch"
-      />
-      <OptionsSelectorComponent
-        ref="sortingOptionSelector"
-        class="mt-2 print:hidden"
-        title="File Sorting:"
-        :labels="sortingOptions.map((o) => fileSortingTooltips[o])"
-        :default-selected="sortingOptions.indexOf(uiStore().fileSorting)"
-        @selection-changed="(index: number) => changeFileSorting(index)"
-      />
+      <nav
+        v-if="inspectableSubmissionIds.length"
+        aria-label="Comparison views"
+        class="my-2 flex flex-wrap gap-2 border-b pb-2 print:hidden"
+      >
+        <button
+          type="button"
+          class="rounded border px-3 py-1 aria-pressed:bg-blue-100 dark:aria-pressed:bg-blue-900"
+          :aria-pressed="!inspectedSubmissionId"
+          @click="inspectedSubmissionId = null"
+        >
+          Matches
+        </button>
+        <button
+          v-for="submissionId in inspectableSubmissionIds"
+          :key="submissionId"
+          type="button"
+          class="rounded border px-3 py-1 aria-pressed:bg-blue-100 dark:aria-pressed:bg-blue-900"
+          :aria-pressed="inspectedSubmissionId === submissionId"
+          @click="inspectedSubmissionId = submissionId"
+        >
+          Normalization: {{ reportStore().getDisplayName(submissionId) }}
+        </button>
+      </nav>
+      <div v-show="!inspectedSubmission">
+        <MatchList
+          :display-name1="reportStore().getDisplayName(comparison.firstSubmissionId)"
+          :display-name2="reportStore().getDisplayName(comparison.secondSubmissionId)"
+          :matches="comparison.allMatches"
+          :basecode-in-first="firstBaseCodeMatches"
+          :basecode-in-second="secondBaseCodeMatches"
+          @match-selected="showMatch"
+        />
+        <OptionsSelectorComponent
+          ref="sortingOptionSelector"
+          class="mt-2 print:hidden"
+          title="File Sorting:"
+          :labels="sortingOptions.map((o) => fileSortingTooltips[o])"
+          :default-selected="sortingOptions.indexOf(uiStore().fileSorting)"
+          @selection-changed="(index: number) => changeFileSorting(index)"
+        />
+      </div>
     </ContainerComponent>
+    <NormalizationInspector
+      v-if="normalizationAnalysis && inspectedSubmission && inspectedSubmissionId"
+      :key="inspectedSubmissionId"
+      :analysis="normalizationAnalysis"
+      :submission="inspectedSubmission"
+      :files="reportStore().getSubmissionFiles(inspectedSubmissionId)"
+      :language="reportStore().getCliOptions().language"
+      class="col-span-full row-start-2 overflow-auto"
+    />
     <div ref="styleholder" class="col-span-0 row-span-0"></div>
     <FilesContainer
+      v-show="!inspectedSubmission"
       ref="panel1"
       :files="comparison.filesOfFirstSubmission"
       :matches="comparison.matchesInFirstSubmission"
@@ -107,6 +143,7 @@
       @files-moved="filesMoved()"
     />
     <FilesContainer
+      v-show="!inspectedSubmission"
       ref="panel2"
       :files="comparison.filesOfSecondSubmission"
       :matches="comparison.matchesInSecondSubmissions"
@@ -145,6 +182,7 @@ import {
 import { reportStore } from '@/stores/reportStore'
 import { Match, MetricJsonIdentifier } from '@jplag/model'
 import { uiStore } from '@/stores/uiStore'
+import NormalizationInspector from '@/components/NormalizationInspector.vue'
 
 const props = defineProps({
   firstSubmissionId: {
@@ -160,6 +198,25 @@ const props = defineProps({
 const comparison = computed(() =>
   reportStore().getComparison(props.firstSubmissionId, props.secondSubmissionId)
 )
+const normalizationAnalysis = computed(() => reportStore().getNormalizationAnalysis())
+const inspectableSubmissionIds = computed(() =>
+  [comparison.value.firstSubmissionId, comparison.value.secondSubmissionId].filter(
+    (id) => normalizationAnalysis.value?.submissions[id] !== undefined
+  )
+)
+const inspectedSubmissionId = ref<string | null>(null)
+const inspectedSubmission = computed(() =>
+  inspectedSubmissionId.value
+    ? reportStore().getNormalizationSubmission(inspectedSubmissionId.value)
+    : undefined
+)
+watch(
+  () => [props.firstSubmissionId, props.secondSubmissionId],
+  () => {
+    inspectedSubmissionId.value = null
+  }
+)
+
 const firstBaseCodeMatches = computed(() =>
   reportStore().getBaseCodeReport(props.firstSubmissionId)
 )
