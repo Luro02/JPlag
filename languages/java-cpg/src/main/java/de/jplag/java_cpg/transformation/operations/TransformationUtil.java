@@ -5,15 +5,19 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
+import de.fraunhofer.aisec.cpg.graph.scopes.Scope;
 import de.fraunhofer.aisec.cpg.graph.statements.BreakStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.ContinueStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.GotoStatement;
@@ -33,6 +37,45 @@ public final class TransformationUtil {
 
     private TransformationUtil() {
         /* should not be instantiated */
+    }
+
+    static void moveToParentScope(TranslationContext ctx, Node parent, Node child) {
+        Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
+        Scope previousScope = child.getScope();
+        if (previousScope == parentScope) {
+            return;
+        }
+
+        // Nested scopes must keep their own bindings, only nodes sharing the moved root's enclosing scope should move.
+        for (Node node : SubgraphWalker.INSTANCE.flattenAST(child)) {
+            if (node.getScope() != previousScope) {
+                continue;
+            }
+            // Changing node.scope does not update symbol tables
+            if (node instanceof Declaration declaration && previousScope != null) {
+                List<Declaration> declarations = previousScope.getSymbols().get(declaration.getSymbol());
+                if (declarations != null && declarations.removeIf(candidate -> candidate == declaration)) {
+                    parentScope.addSymbol(declaration.getSymbol(), declaration);
+                }
+            }
+            node.setScope(parentScope);
+            Scope nestedScope = ctx.getScopeManager().lookupScope(node);
+            if (nestedScope != null) {
+                changeScopeParent(nestedScope, parentScope);
+            }
+        }
+    }
+
+    private static void changeScopeParent(Scope scope, Scope parent) {
+        if (scope.getParent() == parent) {
+            return;
+        }
+        // CPG's parent setter does not maintain child lists, so both sides of the relationship must be updated
+        if (scope.getParent() != null) {
+            scope.getParent().getChildren().removeIf(candidate -> candidate == scope);
+        }
+        scope.setParent(parent);
+        parent.getChildren().add(scope);
     }
 
     /**
@@ -276,7 +319,6 @@ public final class TransformationUtil {
 
     /**
      * Checks whether a node represents a throw, which CPG models as a unary operator.
-     *
      * @param node the node to check
      * @return whether the node is a throw
      */

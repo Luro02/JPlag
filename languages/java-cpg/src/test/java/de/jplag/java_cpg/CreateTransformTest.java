@@ -30,6 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.TranslationResult;
 import de.fraunhofer.aisec.cpg.graph.Node;
+import de.fraunhofer.aisec.cpg.graph.declarations.FieldDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
@@ -43,6 +44,7 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.BinaryOperator;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Reference;
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
 import de.fraunhofer.aisec.cpg.helpers.SubgraphWalker;
 import de.jplag.ParsingException;
 import de.jplag.java_cpg.transformation.GraphTransformation;
@@ -51,7 +53,6 @@ import de.jplag.java_cpg.transformation.matching.CpgIsomorphismDetector;
 import de.jplag.java_cpg.transformation.matching.edges.CpgNthEdge;
 import de.jplag.java_cpg.transformation.matching.pattern.GraphPattern;
 import de.jplag.java_cpg.transformation.matching.pattern.Match;
-
 import de.jplag.java_cpg.transformation.operations.GraphMutationContext;
 import de.jplag.java_cpg.transformation.operations.RemoveOperation;
 import de.jplag.java_cpg.transformation.operations.TransformationUtil;
@@ -204,8 +205,10 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
                 + "for (int index = limit; index > 0; index--) { int next = total + index; "
                 + "if (index % 2 == 0) { total = next; System.out.println(index); } } System.out.println(\"after\"); return total;";
         return Stream.of(
-                Arguments.of("int total = 0; int index = limit; "
-                        + "while (index > 0) { int next = total + index; if (index % 2 == 0) { total = next; } index--; } return total;", false),
+                Arguments.of(
+                        "int total = 0; int index = limit; "
+                                + "while (index > 0) { int next = total + index; if (index % 2 == 0) { total = next; } index--; } return total;",
+                        false),
                 Arguments.of("int total = 0; System.out.println(\"before\"); int index = limit; "
                         + "while (index > 0) { int next = total + index; if (index % 2 == 0) { total = next; } index--; System.out.println(index); } "
                         + "System.out.println(\"after\"); return total;", false),
@@ -229,8 +232,90 @@ public class CreateTransformTest extends AbstractJavaCpgLanguageTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"assert checked > 0;", "assert checked > 0 : detail;",
-            "assert System.nanoTime() > checked : System.nanoTime() + detail;",
+    @ValueSource(booleans = {false, true})
+    void dfgNormalizationPreservesConditionalAccumulatorCounter(boolean convertLoop) throws Exception {
+        String source = """
+                class Example {
+                    static int test(int limit) {
+                        int total = 0;
+                        System.out.println("before");
+                        for (int index = limit; index > 0; index--) {
+                            if (index % 2 == 0) { total += index; }
+                        }
+                        System.out.println("after");
+                        return total;
+                    }
+                }
+                """;
+        GraphTransformation[] transformations = convertLoop ? new GraphTransformation[] {forStatementToWhileStatement} : new GraphTransformation[0];
+        var before = testFunction(translate(source, false, transformations));
+        var after = testFunction(translate(source, true, transformations));
+        for (var function : List.of(before, after)) {
+            var nodes = SubgraphWalker.INSTANCE.flattenAST(function);
+            var counters = nodes.stream().filter(VariableDeclaration.class::isInstance).map(VariableDeclaration.class::cast)
+                    .filter(declaration -> "index".equals(declaration.getName().getLocalName())).toList();
+            assertEquals(1, counters.size(), "The loop counter declaration must survive");
+            var counter = counters.getFirst();
+            var initializer = assertInstanceOf(Reference.class, counter.getInitializer());
+            assertSame(function.getParameters().getFirst(), initializer.getRefersTo());
+            assertTrue(nodes.stream().anyMatch(node -> node instanceof UnaryOperator operator && "--".equals(operator.getOperatorCode())),
+                    "The counter update must survive even without an effectful call in the loop body");
+            var references = nodes.stream().filter(Reference.class::isInstance).map(Reference.class::cast)
+                    .filter(reference -> "index".equals(reference.getName().getLocalName())).toList();
+            assertEquals(4, references.size(), "The condition, guard, accumulator and update must retain their counter reads");
+            references.forEach(reference -> assertSame(counter, reference.getRefersTo(), "Every counter read must bind to the actual initializer"));
+            assertEogIntegrity(function);
+        }
+        assertEquals(callsIn(before), callsIn(after));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void convertedLoopsPreserveShadowingAndNestedScopes(boolean reorder) throws Exception {
+        var graph = translate("""
+                class Example {
+                    static int index = -1;
+                    static int test(int limit) {
+                        int total = 0;
+                        for (int index = limit; index > 0; index--) {
+                            { int contribution = index; total += contribution; }
+                        }
+                        for (int index = limit; index > 0; index--) { total += index; }
+                        return total + index;
+                    }
+                }
+                """, reorder, forStatementToWhileStatement);
+        var function = testFunction(graph);
+        var nodes = SubgraphWalker.INSTANCE.flattenAST(function);
+        var loops = nodes.stream().filter(WhileStatement.class::isInstance).map(WhileStatement.class::cast).toList();
+        assertEquals(2, loops.size());
+        Set<Node> counters = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (var loop : loops) {
+            var condition = SubgraphWalker.INSTANCE.flattenAST(loop.getCondition()).stream().filter(Reference.class::isInstance)
+                    .map(Reference.class::cast).filter(reference -> "index".equals(reference.getName().getLocalName())).findFirst().orElseThrow();
+            var counter = assertInstanceOf(VariableDeclaration.class, condition.getRefersTo());
+            assertTrue(counters.add(counter), "Sibling loops must have distinct counter declarations");
+            assertTrue(nodes.stream().anyMatch(node -> node == counter));
+            SubgraphWalker.INSTANCE.flattenAST(loop).stream().filter(Reference.class::isInstance).map(Reference.class::cast)
+                    .filter(reference -> "index".equals(reference.getName().getLocalName()))
+                    .forEach(reference -> assertSame(counter, reference.getRefersTo()));
+        }
+        var contribution = nodes.stream().filter(VariableDeclaration.class::isInstance).map(VariableDeclaration.class::cast)
+                .filter(declaration -> "contribution".equals(declaration.getName().getLocalName())).findFirst().orElseThrow();
+        nodes.stream().filter(Reference.class::isInstance).map(Reference.class::cast)
+                .filter(reference -> "contribution".equals(reference.getName().getLocalName()))
+                .forEach(reference -> assertSame(contribution, reference.getRefersTo(), "Nested block bindings must remain intact"));
+        var field = SubgraphWalker.INSTANCE.flattenAST(graph).stream().filter(FieldDeclaration.class::isInstance).map(FieldDeclaration.class::cast)
+                .filter(declaration -> "index".equals(declaration.getName().getLocalName())).findFirst().orElseThrow();
+        var returned = nodes.stream().filter(ReturnStatement.class::isInstance).map(ReturnStatement.class::cast).findFirst().orElseThrow();
+        var fieldReference = SubgraphWalker.INSTANCE.flattenAST(returned).stream().filter(Reference.class::isInstance).map(Reference.class::cast)
+                .filter(reference -> "index".equals(reference.getName().getLocalName())).findFirst().orElseThrow();
+        assertSame(field, fieldReference.getRefersTo(), "Loop counters must not leak into the enclosing scope");
+        assertEogIntegrity(function);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"assert checked > 0;", "assert checked > 0 : detail;", "assert System.nanoTime() > checked : System.nanoTime() + detail;",
             "assert checked > 0 : input > 0 ? detail : 0;", "assert checked > 0 : input > 0 && detail > 0;"})
     void dfgNormalizationPreservesAssertionsAndTheirDependencies(String assertion) throws Exception {
         String source = """

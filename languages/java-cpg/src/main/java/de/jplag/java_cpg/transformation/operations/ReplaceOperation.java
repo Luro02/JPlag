@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 
 import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Node;
-import de.fraunhofer.aisec.cpg.graph.scopes.Scope;
 import de.jplag.java_cpg.transformation.Casting;
 import de.jplag.java_cpg.transformation.matching.edges.AnyOfNEdge;
 import de.jplag.java_cpg.transformation.matching.edges.CpgEdge;
@@ -77,13 +76,7 @@ public final class ReplaceOperation<T extends Node, R extends Node> extends Grap
                 tracker.inherit(oldTarget, newTarget);
             }
             tracker.recordSubtree(newTarget);
-        }
-
-        Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
-        newTarget.setScope(parentScope);
-        Scope childScope = ctx.getScopeManager().lookupScope(newTarget);
-        if (!Objects.isNull(childScope)) {
-            childScope.setParent(parentScope);
+            TransformationUtil.moveToParentScope(ctx, parent, newTarget);
         }
 
         if (!disconnectEog) {

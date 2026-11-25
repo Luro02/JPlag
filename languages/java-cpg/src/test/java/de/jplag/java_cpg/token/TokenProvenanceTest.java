@@ -99,8 +99,8 @@ class TokenProvenanceTest {
         Path file = directory.resolve("Branches.java");
         String thenStatement = bracedThen ? "{ System.out.println(1); }" : "System.out.println(1);";
         String elseStatement = bracedElse ? "{ System.out.println(2); }" : "System.out.println(2);";
-        Files.writeString(file, "class Branches { static void test(boolean condition) { if (!condition) " + thenStatement + " else "
-                + elseStatement + " System.out.println(3); } }");
+        Files.writeString(file, "class Branches { static void test(boolean condition) { if (!condition) " + thenStatement + " else " + elseStatement
+                + " System.out.println(3); } }");
         var language = new JavaCpgLanguage().withNormalizations(List.of(ifWithNegatedConditionResolution));
         var tokens = language.parse(Set.of(file.toFile()), true);
         String swap = ifWithNegatedConditionResolution.name();

@@ -11,7 +11,6 @@ import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.edge.Properties;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
-import de.fraunhofer.aisec.cpg.graph.scopes.Scope;
 import de.jplag.java_cpg.transformation.TransformationException;
 import de.jplag.java_cpg.transformation.matching.edges.AnyOfNEdge;
 import de.jplag.java_cpg.transformation.matching.edges.CpgEdge;
@@ -95,13 +94,7 @@ public final class InsertOperation<T extends Node, R extends Node> extends Graph
         tracker.record(parent);
         if (nthEdge.isAst()) {
             tracker.recordSubtree(newTarget);
-        }
-
-        Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
-        newTarget.setScope(parentScope);
-        Scope childScope = ctx.getScopeManager().lookupScope(newTarget);
-        if (!Objects.isNull(childScope)) {
-            childScope.setParent(parentScope);
+            TransformationUtil.moveToParentScope(ctx, parent, newTarget);
         }
 
         if (!connectEog) {

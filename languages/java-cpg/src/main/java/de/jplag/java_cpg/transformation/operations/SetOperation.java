@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 
 import de.fraunhofer.aisec.cpg.TranslationContext;
 import de.fraunhofer.aisec.cpg.graph.Node;
-import de.fraunhofer.aisec.cpg.graph.scopes.Scope;
 import de.jplag.java_cpg.transformation.TransformationException;
 import de.jplag.java_cpg.transformation.matching.edges.CpgEdge;
 import de.jplag.java_cpg.transformation.matching.pattern.Match;
@@ -58,13 +57,7 @@ public final class SetOperation<T extends Node, R extends Node> extends GraphOpe
         tracker.record(parent);
         if (edge.isAst()) {
             tracker.recordSubtree(newChild);
-        }
-
-        Scope parentScope = Objects.requireNonNullElse(ctx.getScopeManager().lookupScope(parent), parent.getScope());
-        newChild.setScope(parentScope);
-        Scope childScope = ctx.getScopeManager().lookupScope(newChild);
-        if (!Objects.isNull(childScope)) {
-            childScope.setParent(parentScope);
+            TransformationUtil.moveToParentScope(ctx, parent, newChild);
         }
 
         // Here, the EOG would be connected. Yet, this would be very hard because we do not have any EOG neighbors to

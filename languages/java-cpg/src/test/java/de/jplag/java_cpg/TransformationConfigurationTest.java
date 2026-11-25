@@ -177,8 +177,8 @@ class TransformationConfigurationTest {
 
     @Test
     void assertionRemovalPrecedesDfgCleanupOfAssertionOnlyDependencies() throws Exception {
-        Path file = source("AssertionDependencies", "static int sample() { int checked = 1; int message = 2; "
-                + "assert checked > 0 : message; System.out.println(3); return 4; }");
+        Path file = source("AssertionDependencies",
+                "static int sample() { int checked = 1; int message = 2; " + "assert checked > 0 : message; System.out.println(3); return 4; }");
         Path withoutDependencies = source("WithoutDependencies", "static int sample() { System.out.println(3); return 4; }");
         var language = new JavaCpgLanguage();
         var dfgOnly = language.withNormalizations(List.of(DFG_NORMALIZATION));

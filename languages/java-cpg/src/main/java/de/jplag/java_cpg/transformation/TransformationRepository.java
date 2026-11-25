@@ -284,7 +284,6 @@ public class TransformationRepository {
 
     /**
      * Creates a transformation that removes entire assertion subtrees before dependency analysis.
-     *
      * @return the graph transformation object
      */
     private static GraphTransformation removeAssertion() {
