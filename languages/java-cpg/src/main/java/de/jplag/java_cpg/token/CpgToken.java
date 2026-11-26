@@ -19,6 +19,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.Declaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.RecordDeclaration;
 import de.fraunhofer.aisec.cpg.graph.declarations.TranslationUnitDeclaration;
 import de.fraunhofer.aisec.cpg.graph.statements.CatchClause;
+import de.fraunhofer.aisec.cpg.graph.statements.ReturnStatement;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.AssignExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.Block;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
@@ -149,6 +150,8 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
             }
             case CatchClause _,RecordDeclaration _ when isEndToken -> singleLetterRegion(region.getEndLine(), region.getEndColumn() - 1);
             case LambdaExpression lambda -> lambdaSignatureRegion(lambda, location, file);
+            // Normalization can move the returned expression's start without changing the return keyword.
+            case ReturnStatement _ -> new Region(region.startLine, region.startColumn, region.startLine, region.startColumn + "return".length());
             // The left-hand side starts at the assignment's start, leaving no usable prefix.
             case AssignExpression _ -> region;
             case CallExpression call -> {

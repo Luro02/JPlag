@@ -6,6 +6,7 @@ import static de.jplag.java_cpg.token.CpgTokenType.ENUM_DECL_END;
 import static de.jplag.java_cpg.token.CpgTokenType.ENUM_ELEMENT;
 import static de.jplag.java_cpg.token.CpgTokenType.FIELD_DECL;
 import static de.jplag.java_cpg.token.CpgTokenType.LAMBDA_EXPRESSION;
+import static de.jplag.java_cpg.token.CpgTokenType.METHOD_CALL;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_BEGIN;
 import static de.jplag.java_cpg.token.CpgTokenType.RECORD_DECL_END;
 import static de.jplag.java_cpg.token.CpgTokenType.RETURN;
@@ -20,18 +21,24 @@ import static de.jplag.java_cpg.token.TokenTestSupport.tokensInMethod;
 import static de.jplag.java_cpg.token.TokenTestSupport.uniqueToken;
 import static de.jplag.java_cpg.transformation.TransformationRepository.forStatementToWhileStatement;
 import static de.jplag.java_cpg.transformation.TransformationRepository.moveConstantToOnlyUsingClass;
+import static de.jplag.java_cpg.transformation.TransformationRepository.removeOptionalOfCall;
 import static de.jplag.testutils.TokenUtils.tokensByFile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import de.jplag.Token;
+import de.jplag.java_cpg.JavaCpgLanguage;
 
 /**
  * Integration tests for token source locations after normalization.
@@ -40,12 +47,12 @@ class TokenLocationTest {
     private static final String CONSTANT_CLASSES = "constantClass/SubmissionA/edu/kit/kastel/sdq/jplag/example/";
 
     /**
-     * Prefixes must include complete keywords and stop before the first child, even across line breaks.
+     * Return tokens cover only the keyword, while case prefixes stop before the first child.
      */
     @Test
     void prefixTokensStopAtFirstChild() throws Exception {
         var tokens = parse("TokenPrefixes.java", false);
-        var returns = Map.of("compactReturn", "return", "compactStringReturn", "return", "spacedReturn", "return ", "multilineReturn", "return\n  ");
+        var returns = Map.of("compactReturn", "return", "compactStringReturn", "return", "spacedReturn", "return", "multilineReturn", "return");
 
         for (var entry : returns.entrySet()) {
             Token token = uniqueToken(tokensInMethod(tokens, entry.getKey()), RETURN);
@@ -53,6 +60,27 @@ class TokenLocationTest {
             assertEquals(entry.getValue(), sourceOf(token), entry.getKey());
         }
         assertEquals("case", sourceOf(uniqueToken(tokensInMethod(tokens, "switchValue"), CASE_STATEMENT)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void returnBoundsDoNotDependOnOptionalNormalization(boolean normalize, @TempDir Path directory) throws Exception {
+        Path file = directory.resolve("OptionalReturn.java");
+        Files.writeString(file, """
+                import java.util.Optional;
+                class OptionalReturn {
+                    Optional<String> wrap(String value) {
+                        return Optional.of(value);
+                    }
+                }
+                """);
+        var language = new JavaCpgLanguage().withNormalizations(List.of(removeOptionalOfCall));
+        var tokens = language.parse(Set.of(file.toFile()), normalize);
+        Token token = uniqueToken(tokens, RETURN);
+
+        assertEquals("return", sourceOf(token));
+        assertEquals(List.of(4, 9, 4, 15), List.of(token.getStartLine(), token.getStartColumn(), token.getEndLine(), token.getEndColumn()));
+        assertEquals(normalize ? 0L : 1L, tokens.stream().filter(candidate -> candidate.getType() == METHOD_CALL).count());
     }
 
     /**
