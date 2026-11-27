@@ -25,7 +25,7 @@ class CpgTokenTest {
 
     @Test
     void missingSourceLocationIsRejected() {
-        assertThrows(IllegalStateException.class, () -> CpgToken.fromNode(ASSIGNMENT, new AssignExpression(), false, new LinkedHashSet<>()));
+        assertThrows(IllegalStateException.class, () -> CpgToken.fromNode(ASSIGNMENT, new AssignExpression(), false, new LinkedHashSet<>(), null));
     }
 
     @ParameterizedTest(name = "Rejects {0} source regions")
@@ -33,14 +33,14 @@ class CpgTokenTest {
     void invalidSourceRegionIsRejected(String description, int startLine, int startColumn, int endLine, int endColumn) {
         var assignment = assignment(new Region(startLine, startColumn, endLine, endColumn));
 
-        assertThrows(IllegalStateException.class, () -> CpgToken.fromNode(ASSIGNMENT, assignment, false, new LinkedHashSet<>()));
+        assertThrows(IllegalStateException.class, () -> CpgToken.fromNode(ASSIGNMENT, assignment, false, new LinkedHashSet<>(), null));
     }
 
     @Test
     void provenanceIsAReadOnlySnapshot() {
         var original = new Provenance("original");
         var provenance = new LinkedHashSet<>(List.of(original));
-        var token = CpgToken.fromNode(ASSIGNMENT, assignment(new Region(1, 1, 1, 2)), false, provenance).orElseThrow();
+        var token = CpgToken.fromNode(ASSIGNMENT, assignment(new Region(1, 1, 1, 2)), false, provenance, null).orElseThrow();
 
         provenance.clear();
         provenance.add(new Provenance("later"));

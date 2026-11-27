@@ -383,7 +383,8 @@ public class TransformationRepository {
 
         }.build();
         return GraphTransformation.Builder.from(sourcePattern, targetPattern, "forStmtToWhileStmt", AST_TRANSFORM)
-                .setSourceLocation(WHILE_STATEMENT, FOR_STATEMENT).setSourceLocation(WHILE_STATEMENT_BODY, BODY).setExecutionOrder(ASCENDING_LOCATION)
+                .setSourceLocation(WHILE_STATEMENT, FOR_STATEMENT).setSourceLocation(WHILE_STATEMENT_BODY, BODY)
+                .setTokenIdentity(WHILE_STATEMENT, FOR_STATEMENT).setTokenIdentity(WHILE_STATEMENT_BODY, BODY).setExecutionOrder(ASCENDING_LOCATION)
                 .build();
 
     }

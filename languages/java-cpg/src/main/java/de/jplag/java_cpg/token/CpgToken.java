@@ -26,6 +26,7 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.LambdaExpression;
 import de.fraunhofer.aisec.cpg.sarif.PhysicalLocation;
 import de.fraunhofer.aisec.cpg.sarif.Region;
+import de.jplag.IdentityAwareToken;
 import de.jplag.Provenance;
 import de.jplag.ProvenanceAwareToken;
 import de.jplag.Token;
@@ -34,7 +35,7 @@ import de.jplag.TokenType;
 /**
  * This class represents a Token in the context of the CPG module of JPlag.
  */
-public final class CpgToken extends Token implements ProvenanceAwareToken {
+public final class CpgToken extends Token implements ProvenanceAwareToken, IdentityAwareToken {
     private static final Logger logger = LoggerFactory.getLogger(CpgToken.class);
     /**
      * This is used as the Token's length if the token spans multiple lines. The value is supposed to be greater than the
@@ -44,6 +45,7 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
 
     private final Name name;
     private final SequencedSet<Provenance> provenances;
+    private final String identity;
 
     /**
      * Creates a new {@link CpgToken}.
@@ -54,7 +56,7 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
      * @param name the name of the represented CPG node
      */
     private CpgToken(TokenType tokenType, File file, Region region, int length, Name name) {
-        this(tokenType, file, region, length, name, new LinkedHashSet<>());
+        this(tokenType, file, region, length, name, new LinkedHashSet<>(), null);
     }
 
     /**
@@ -62,8 +64,10 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
      * @param type the {@link TokenType}
      * @param node the represented {@link Node}
      * @param isEndToken true iff the token represents the end of a block
+     * @param provenance associated transformations
+     * @param identity the detached correlation identity, if known
      */
-    static Optional<CpgToken> fromNode(TokenType type, Node node, boolean isEndToken, SequencedSet<Provenance> provenance) {
+    static Optional<CpgToken> fromNode(TokenType type, Node node, boolean isEndToken, SequencedSet<Provenance> provenance, String identity) {
         logger.debug("{} / {}", type, node);
         PhysicalLocation location = node.getLocation();
 
@@ -79,7 +83,7 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
         File file = new File(location.getArtifactLocation().getUri());
         Region newRegion = calculateNewRegion(node, location, file, isEndToken, type);
 
-        return Optional.of(new CpgToken(type, file, newRegion, calculateLength(newRegion), node.getName(), provenance));
+        return Optional.of(new CpgToken(type, file, newRegion, calculateLength(newRegion), node.getName(), provenance, identity));
     }
 
     /**
@@ -90,16 +94,23 @@ public final class CpgToken extends Token implements ProvenanceAwareToken {
      * @param length the length of the represented code
      * @param name the represented node's name
      * @param provenances the associated transformations
+     * @param identity the detached correlation identity, if known
      */
-    private CpgToken(TokenType tokenType, File file, Region region, int length, Name name, SequencedSet<Provenance> provenances) {
+    private CpgToken(TokenType tokenType, File file, Region region, int length, Name name, SequencedSet<Provenance> provenances, String identity) {
         super(tokenType, file, region.startLine, region.startColumn, region.getEndLine(), region.getEndColumn(), length);
         this.name = name;
         this.provenances = Collections.unmodifiableSequencedSet(new LinkedHashSet<>(provenances));
+        this.identity = identity;
     }
 
     @Override
     public SequencedSet<Provenance> provenances() {
         return this.provenances;
+    }
+
+    @Override
+    public Optional<String> identity() {
+        return Optional.ofNullable(identity);
     }
 
     @Override

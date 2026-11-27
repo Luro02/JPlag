@@ -181,6 +181,7 @@ public interface GraphTransformation extends Normalization {
         private final ExecutionPhase phase;
         private final List<Role> newRoles;
         private final Map<Role, Role> sourceLocationRoles = new HashMap<>();
+        private final Map<Role, Role> tokenIdentityRoles = new HashMap<>();
         private ExecutionOrder executionOrder;
 
         private Builder(GraphPattern sourcePattern, GraphPattern targetPattern, String transformationName, ExecutionPhase phase) {
@@ -229,6 +230,17 @@ public interface GraphTransformation extends Normalization {
          */
         Builder setSourceLocation(Role targetRole, Role sourceRole) {
             sourceLocationRoles.put(targetRole, sourceRole);
+            return this;
+        }
+
+        /**
+         * Uses an original node's token identity for a newly created node, independent of its source location.
+         * @param targetRole the new node's role
+         * @param sourceRole the original node's role
+         * @return this builder
+         */
+        Builder setTokenIdentity(Role targetRole, Role sourceRole) {
+            tokenIdentityRoles.put(targetRole, sourceRole);
             return this;
         }
 
@@ -314,8 +326,8 @@ public interface GraphTransformation extends Normalization {
                 NodePattern<?> newPattern = sourcePattern.addNode(role, targetPattern.getPattern(role));
 
                 // new nodes needed for the transformation application
-                CreateNodeOperation<?> createNodeOperation = new CreateNodeOperation<>(sourcePattern, role, newPattern,
-                        sourceLocationRoles.get(role));
+                CreateNodeOperation<?> createNodeOperation = new CreateNodeOperation<>(sourcePattern, role, newPattern, sourceLocationRoles.get(role),
+                        tokenIdentityRoles.get(role));
                 newNodes.add(createNodeOperation);
             }
             return newNodes;

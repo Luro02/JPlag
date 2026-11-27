@@ -27,8 +27,8 @@ class TokenizationPass(ctx: TranslationContext) : TranslationResultPass(ctx) {
     override fun accept(translationResult: TranslationResult) {
         tokenList.clear()
 
-        val tracker = requireNotNull(passConfig<GraphMutationPassConfiguration>()).mutationContext.provenanceTracker
-        val listener = CpgTokenizer(tracker)
+        val mutationContext = requireNotNull(passConfig<GraphMutationPassConfiguration>()).mutationContext
+        val listener = CpgTokenizer(mutationContext)
 
         strategy.walk(
             translationResult,

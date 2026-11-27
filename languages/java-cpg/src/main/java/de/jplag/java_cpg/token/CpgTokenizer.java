@@ -91,21 +91,25 @@ import de.fraunhofer.aisec.cpg.graph.statements.expressions.ConstructExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.LambdaExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.NewArrayExpression;
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.UnaryOperator;
+import de.jplag.TokenType;
 import de.jplag.java_cpg.transformation.ProvenanceTracker;
+import de.jplag.java_cpg.transformation.operations.GraphMutationContext;
 
 /**
  * This class translates {@link Node}s into {@link CpgToken}s.
  */
 public class CpgTokenizer {
     private final ProvenanceTracker provenanceTracker;
+    private final TokenIdentityTracker tokenIdentities;
     private final Map<Block, BlockKind> blockKinds;
 
     /**
      * Creates a new {@link CpgTokenizer}.
-     * @param provenanceTracker the {@link ProvenanceTracker} that contains the provenance for the nodes
+     * @param mutationContext the mutation context of the current graph transformation
      */
-    public CpgTokenizer(ProvenanceTracker provenanceTracker) {
-        this.provenanceTracker = provenanceTracker;
+    public CpgTokenizer(GraphMutationContext mutationContext) {
+        this.provenanceTracker = mutationContext.getProvenanceTracker();
+        this.tokenIdentities = mutationContext.getTokenIdentities();
         this.blockKinds = new IdentityHashMap<>();
     }
 
@@ -189,7 +193,7 @@ public class CpgTokenizer {
             default -> null;
         };
 
-        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, false, provenanceTracker.get(node)));
+        return createToken(type, node, false);
     }
 
     /**
@@ -213,7 +217,15 @@ public class CpgTokenizer {
             default -> null;
         };
 
-        return Optional.ofNullable(type).flatMap(tokenType -> CpgToken.fromNode(tokenType, node, true, provenanceTracker.get(node)));
+        return createToken(type, node, true);
+    }
+
+    private Optional<CpgToken> createToken(TokenType type, Node node, boolean isEndToken) {
+        if (type == null) {
+            return Optional.empty();
+        }
+
+        return CpgToken.fromNode(type, node, isEndToken, provenanceTracker.get(node), tokenIdentities.get(node, isEndToken).orElse(null));
     }
 
     private enum BlockKind {

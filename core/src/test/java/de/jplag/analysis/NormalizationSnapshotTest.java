@@ -7,16 +7,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.SequencedSet;
 
 import org.junit.jupiter.api.Test;
 
+import de.jplag.IdentityAwareToken;
 import de.jplag.Provenance;
 import de.jplag.ProvenanceAwareToken;
 import de.jplag.Token;
@@ -28,10 +31,11 @@ class NormalizationSnapshotTest {
     private static final Path SOURCE = Path.of("fixtures", "Example.java");
     private static final SourceRegion DECLARATION = new SourceRegion(SOURCE, 2, 3, 2, 9);
     private static final SourceRegion CALL = new SourceRegion(SOURCE, 4, 1, 4, 16);
+    private static final SourceRegion BLOCK = new SourceRegion(SOURCE, 6, 8, 8, 2);
     private static final SourceRegion OTHER_DECLARATION = new SourceRegion(Path.of("other", "Example.java"), 2, 3, 2, 9);
 
     @Test
-    void keysUseExactNormalizedRegionsAndAllowDuplicates() {
+    void legacyKeysUseExactNormalizedRegionsAndAllowDuplicates() {
         var declaration = new TypeOnlyToken(DECLARATION_TYPE, DECLARATION, "original");
         var unrelatedCall = new TypeOnlyToken(DECLARATION_TYPE, CALL, "original");
         var equivalentPath = SOURCE.resolveSibling(Path.of("nested", "..", SOURCE.getFileName().toString()));
@@ -52,7 +56,60 @@ class NormalizationSnapshotTest {
     }
 
     @Test
-    void fileEndsAndUnlocatedTokensHaveNoKeys() {
+    void identityKeysSurviveReorderingAndChangesToRegionTypeAndProvenance() {
+        var streams = streams(List.of(Token.fileEnd(SOURCE.toFile()), identityToken(DECLARATION, "first"), identityToken(DECLARATION, "second")),
+                List.of(identityToken(DECLARATION, "second"), new IdentityToken(CALL_TYPE, OTHER_DECLARATION, "first", "rewritten")));
+        var original = streams.getFirst().tokens();
+        var changed = streams.getLast().tokens();
+
+        assertNotNull(original.get(1).correspondenceKey());
+        assertNotNull(original.get(2).correspondenceKey());
+        assertEquals(original.get(1).correspondenceKey(), changed.get(1).correspondenceKey());
+        assertEquals(original.get(2).correspondenceKey(), changed.getFirst().correspondenceKey());
+        assertNotEquals(original.get(1).correspondenceKey(), original.get(2).correspondenceKey());
+        assertNull(original.getFirst().correspondenceKey());
+        assertEquals("call", changed.get(1).type());
+        assertEquals(OTHER_DECLARATION, changed.get(1).region());
+        assertEquals(List.of("rewritten"), changed.get(1).transformations());
+    }
+
+    @Test
+    void explicitStreamsExcludeUntrackedTokensAndDoNotShareLegacyKeys() {
+        var streams = streams(List.of(token(DECLARATION), token(CALL)), List.of(identityToken(DECLARATION, "node"), token(CALL)),
+                List.of(identityToken(DECLARATION, null), token(CALL)));
+        var legacy = streams.getFirst().tokens();
+        var explicit = streams.get(1).tokens();
+        var untracked = streams.getLast().tokens();
+
+        assertNotNull(legacy.getFirst().correspondenceKey());
+        assertNotNull(legacy.get(1).correspondenceKey());
+        assertNotNull(explicit.getFirst().correspondenceKey());
+        assertNotEquals(legacy.getFirst().correspondenceKey(), explicit.getFirst().correspondenceKey());
+        assertNull(explicit.get(1).correspondenceKey());
+        assertNull(untracked.getFirst().correspondenceKey());
+        assertNull(untracked.get(1).correspondenceKey());
+    }
+
+    @Test
+    void duplicateExplicitIdentityWithinAStreamIsRejected() {
+        var duplicate = List.of(identityToken(DECLARATION, "duplicate"), identityToken(CALL, "duplicate"));
+
+        assertThrows(IllegalStateException.class, () -> streams(duplicate));
+    }
+
+    @Test
+    void identityKeysAreRetainedWithoutUsableSourceRegions() {
+        var streams = streams(List.of(identityToken(null, "node")), List.of(identityToken(DECLARATION, "node")));
+        var unavailable = streams.getFirst().tokens().getFirst();
+        var located = streams.getLast().tokens().getFirst();
+
+        assertNull(unavailable.region());
+        assertNotNull(unavailable.correspondenceKey());
+        assertEquals(unavailable.correspondenceKey(), located.correspondenceKey());
+    }
+
+    @Test
+    void fileEndsAndUnlocatedLegacyTokensHaveNoKeys() {
         Token unknown = new Token(DECLARATION_TYPE, SOURCE.toFile(), Token.NO_VALUE, Token.NO_VALUE, Token.NO_VALUE, Token.NO_VALUE, Token.NO_VALUE);
         var streams = streams(List.of(token(DECLARATION), Token.fileEnd(SOURCE.toFile()), unknown), List.of(token(DECLARATION), Token.fileEnd(null)));
         var original = streams.getFirst().tokens();
@@ -69,7 +126,8 @@ class NormalizationSnapshotTest {
 
     @Test
     void tokensAbsentFromTheBaselineStillMatchAcrossLaterRuns() {
-        var streams = streams(List.of(token(DECLARATION)), List.of(token(CALL)), List.of(token(CALL), token(DECLARATION)));
+        var streams = streams(List.of(identityToken(DECLARATION, "baseline")), List.of(identityToken(CALL, "added")),
+                List.of(identityToken(BLOCK, "added"), identityToken(DECLARATION, "baseline")));
         var baseline = streams.getFirst().tokens().getFirst();
         var added = streams.get(1).tokens().getFirst();
         var last = streams.getLast().tokens();
@@ -88,6 +146,33 @@ class NormalizationSnapshotTest {
             runs.add(run(submission("submission", root, tokens)));
         }
         return snapshot(runs.toArray(ConfigurationResult[]::new)).submissions().get(root.toAbsolutePath().normalize()).streams();
+    }
+
+    private static Token identityToken(SourceRegion region, String identity) {
+        return new IdentityToken(DECLARATION_TYPE, region, identity, "original");
+    }
+
+    private static final class IdentityToken extends Token implements IdentityAwareToken, ProvenanceAwareToken {
+        private final String identity;
+        private final String transformationName;
+
+        private IdentityToken(TokenType type, SourceRegion region, String identity, String transformationName) {
+            super(type, region == null ? null : region.file().toFile(), region == null ? Token.NO_VALUE : region.startLine(),
+                    region == null ? Token.NO_VALUE : region.startColumn(), region == null ? Token.NO_VALUE : region.endLine(),
+                    region == null ? Token.NO_VALUE : region.endColumn(), Token.NO_VALUE);
+            this.identity = identity;
+            this.transformationName = transformationName;
+        }
+
+        @Override
+        public Optional<String> identity() {
+            return Optional.ofNullable(identity);
+        }
+
+        @Override
+        public SequencedSet<Provenance> provenances() {
+            return new LinkedHashSet<>(List.of(new Provenance(transformationName)));
+        }
     }
 
     private static Token token(SourceRegion region) {

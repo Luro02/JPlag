@@ -32,10 +32,11 @@ import de.jplag.java_cpg.transformation.matching.pattern.PatternUtil;
  * @param role the role of the new {@link Node}
  * @param pattern the {@link NodePattern} representing the new {@link Node}
  * @param sourceLocationRole the original node whose location is inherited, or null if none is specified
+ * @param tokenIdentityRole the original token occurrence continued by this node, or null if none is specified
  * @param <N> the new {@link Node}'s type
  */
-public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role role, NodePattern<N> pattern, Role sourceLocationRole)
-        implements GraphOperation {
+public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role role, NodePattern<N> pattern, Role sourceLocationRole,
+        Role tokenIdentityRole) implements GraphOperation {
 
     private static final List<Class<? extends Node>> scopedNodeClasses = List.of(Block.class, WhileStatement.class, DoStatement.class,
             AssertStatement.class, ForStatement.class, ForEachStatement.class, SwitchStatement.class, FunctionDeclaration.class, IfStatement.class,
@@ -49,6 +50,10 @@ public record CreateNodeOperation<N extends Node>(GraphPattern sourceGraph, Role
             Node original = match.get(sourceGraph.getPattern(sourceLocationRole));
             newNode.setLocation(original.getLocation());
             tracker.inherit(original, newNode);
+        }
+        if (tokenIdentityRole != null) {
+            Node original = match.get(sourceGraph.getPattern(tokenIdentityRole));
+            mutationContext.getTokenIdentities().inherit(original, newNode);
         }
         tracker.record(newNode);
         match.register(pattern, newNode);

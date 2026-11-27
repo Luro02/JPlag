@@ -4,11 +4,14 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 
+import de.jplag.IdentityAwareToken;
 import de.jplag.Normalization;
 import de.jplag.Provenance;
 import de.jplag.ProvenanceAwareToken;
@@ -51,7 +54,7 @@ public record NormalizationSnapshot(List<Configuration> configurations, String b
     private static Submission captureSubmission(Path root, List<IndexedRun> runs) {
         List<Stream> streams = new ArrayList<>();
         // One lookup across all configurations also covers tokens absent from the baseline.
-        Map<SourceRegion, Integer> keys = new HashMap<>();
+        Map<Object, Integer> keys = new HashMap<>();
         for (IndexedRun entry : runs) {
             List<Token> tokens = entry.run().tokensBySubmission().get(root);
             if (tokens != null) {
@@ -61,13 +64,25 @@ public record NormalizationSnapshot(List<Configuration> configurations, String b
         return new Submission(streams);
     }
 
-    private static Stream captureStream(String configurationId, List<Token> tokens, Map<SourceRegion, Integer> keys) {
+    private static Stream captureStream(String configurationId, List<Token> tokens, Map<Object, Integer> keys) {
+        boolean identityAware = tokens.stream().anyMatch(token -> token.getType() != SharedTokenType.FILE_END && token instanceof IdentityAwareToken);
+        Set<String> identities = new HashSet<>();
         List<TokenData> captured = new ArrayList<>();
 
         for (Token token : tokens) {
             boolean fileEnd = token.getType() == SharedTokenType.FILE_END;
             SourceRegion region = fileEnd ? null : SourceRegion.from(token).orElse(null);
-            Integer correspondenceKey = region == null ? null : keys.computeIfAbsent(region, _ -> keys.size());
+            Object key = identityAware ? null : region;
+            if (!fileEnd && identityAware) {
+                String identity = token instanceof IdentityAwareToken aware ? aware.identity().orElse(null) : null;
+                if (identity != null && !identities.add(identity)) {
+                    throw new IllegalStateException(
+                            "Duplicate token identity %s in %s at position %d".formatted(identity, configurationId, captured.size()));
+                }
+                key = identity;
+            }
+            // Strings and source regions are distinct key types; explicit identities never fall back to regions.
+            Integer correspondenceKey = key == null ? null : keys.computeIfAbsent(key, _ -> keys.size());
 
             String type = token.getType() instanceof Enum<?> enumType ? enumType.name() : token.getType().getDescription();
             List<String> transformations = token instanceof ProvenanceAwareToken aware
@@ -109,8 +124,8 @@ public record NormalizationSnapshot(List<Configuration> configurations, String b
 
     /**
      * Captured token streams for a single submission. Tokens with the same non-null correspondence key belong together
-     * across configurations when their source regions match exactly, even when their type or stream position differs. Keys
-     * have no meaning outside this submission's snapshot.
+     * across configurations, even when their type, position, or source region differs. Keys have no meaning outside this
+     * submission's snapshot.
      * @param streams token streams for each configuration that processed this submission
      */
     public record Submission(List<Stream> streams) {
@@ -137,8 +152,8 @@ public record NormalizationSnapshot(List<Configuration> configurations, String b
      * @param transformations names of transformations that produced or modified this token
      * @param fileEnd {@code true} if this token marks the end of a file
      * @param correspondenceKey opaque key shared by corresponding tokens in this submission, or {@code null} if excluded
-     * from correspondence (not merely unmatched). Keys are based on exact source regions. File-end tokens and tokens
-     * without a source region are always excluded.
+     * from correspondence (not merely unmatched). Identity-aware streams use explicit identities; other streams use exact
+     * source regions as a best-effort fallback. File-end tokens are always excluded.
      */
     public record TokenData(String type, SourceRegion region, List<String> transformations, boolean fileEnd, Integer correspondenceKey) {
         public TokenData {

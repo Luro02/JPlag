@@ -6,6 +6,7 @@ import java.util.Set;
 
 import de.fraunhofer.aisec.cpg.graph.Node;
 import de.fraunhofer.aisec.cpg.graph.edge.PropertyEdge;
+import de.jplag.java_cpg.token.TokenIdentityTracker;
 import de.jplag.java_cpg.transformation.ProvenanceTracker;
 
 /**
@@ -15,6 +16,7 @@ public final class GraphMutationContext implements AutoCloseable {
     private final Node dummyNeighbor;
     private final Set<PropertyEdge<Node>> temporaryEdges;
     private final ProvenanceTracker tracker;
+    private final TokenIdentityTracker tokenIdentities;
     private volatile boolean closed;
 
     /**
@@ -25,6 +27,7 @@ public final class GraphMutationContext implements AutoCloseable {
         this.temporaryEdges = Collections.newSetFromMap(new IdentityHashMap<>());
         this.closed = false;
         this.tracker = new ProvenanceTracker();
+        this.tokenIdentities = new TokenIdentityTracker();
     }
 
     /**
@@ -41,6 +44,14 @@ public final class GraphMutationContext implements AutoCloseable {
      */
     public ProvenanceTracker getProvenanceTracker() {
         return tracker;
+    }
+
+    /**
+     * Returns token correlation anchors independently of transformation annotations.
+     * @return translation-local token identities
+     */
+    public TokenIdentityTracker getTokenIdentities() {
+        return tokenIdentities;
     }
 
     /**
@@ -81,6 +92,7 @@ public final class GraphMutationContext implements AutoCloseable {
         dummyNeighbor.getPrevEOGEdges().clear();
         temporaryEdges.clear();
         tracker.clear();
+        tokenIdentities.clear();
 
         closed = true;
     }

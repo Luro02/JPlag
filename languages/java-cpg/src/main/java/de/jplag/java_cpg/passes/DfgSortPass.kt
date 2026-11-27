@@ -751,7 +751,7 @@ class DfgSortPass(ctx: TranslationContext) : TranslationUnitPass(ctx) {
         }
 
     private fun tokenOrdinals(nodes: List<Node>): Sequence<Int> = sequence {
-        val tokenizer = CpgTokenizer(ProvenanceTracker())
+        val tokenizer = CpgTokenizer(mutationContext)
 
         for (node in nodes) {
             val token = tokenizer.visit(node).orElse(null) ?: continue

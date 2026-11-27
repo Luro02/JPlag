@@ -21,12 +21,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.zip.ZipFile;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import de.jplag.IdentityAwareToken;
 import de.jplag.JPlag;
 import de.jplag.JPlagComparison;
 import de.jplag.JPlagResult;
@@ -113,7 +115,7 @@ class NormalizationReportWriterTest {
     }
 
     @Test
-    void exportsExactSchemaWithIndicesProvenanceExclusiveRegionsAndRegionKeys() throws Exception {
+    void exportsExactSchemaWithIndicesProvenanceExclusiveRegionsAndLegacyKeys() throws Exception {
         var first = spy(submission("first"));
         var second = submission("second");
         var excluded = submission("excluded");
@@ -238,16 +240,87 @@ class NormalizationReportWriterTest {
     }
 
     @Test
+    void identityKeysSurviveDifferentArchivedRegionsWithoutExportingIdentity() throws Exception {
+        var first = submission("first");
+        var second = submission("second");
+        File file = first.getFiles().iterator().next();
+        first.setTokenList(List.of(Token.fileEnd(file), identityToken(file, 1, "private-node-anchor"), identityToken(file, 1, null)));
+        var baseline = new ConfigurationResult(List.of(), result(false, first, second));
+        first.setTokenList(List.of(identityToken(file, 8, "private-node-anchor"), identityToken(file, 8, null), Token.fileEnd(file)));
+        var reporting = result(true, first, second);
+        var normalized = new ConfigurationResult(List.of(), reporting);
+        reporting.setNormalizationAnalysis(NormalizationSnapshot.from(new NormalizationAnalysis.Result(List.of(baseline, normalized), normalized)));
+
+        JsonNode data = json(export(reporting), "normalization/first.json");
+
+        JsonNode baselineTokens = data.get("streams").get(0).get("tokens");
+        JsonNode reportingTokens = data.get("streams").get(1).get("tokens");
+        JsonNode baselineToken = baselineTokens.get(1);
+        JsonNode reportingToken = reportingTokens.get(0);
+        assertEquals(1, baselineToken.get("index").asInt());
+        assertEquals(0, reportingToken.get("index").asInt());
+        assertEquals(1, baselineToken.get("region").get("startLine").asInt());
+        assertEquals(8, reportingToken.get("region").get("startLine").asInt());
+        assertTrue(baselineToken.get("correspondenceKey").isIntegralNumber());
+        assertEquals(baselineToken.get("correspondenceKey"), reportingToken.get("correspondenceKey"));
+        assertTrue(baselineTokens.get(0).get("correspondenceKey").isNull());
+        assertTrue(reportingTokens.get(2).get("correspondenceKey").isNull());
+        assertFalse(baselineTokens.get(2).get("region").isNull());
+        assertTrue(baselineTokens.get(2).get("correspondenceKey").isNull());
+        assertFalse(reportingTokens.get(1).get("region").isNull());
+        assertTrue(reportingTokens.get(1).get("correspondenceKey").isNull());
+
+        assertEquals(Set.of("streams"), fields(data));
+        assertEquals(Set.of("index", "type", "region", "transformations", "fileEnd", "correspondenceKey"), fields(baselineToken));
+        assertFalse(data.toString().contains("private-node-anchor"));
+    }
+
+    @Test
+    void identityKeysAreRetainedWhenArchivedRegionsAreUnavailable() throws Exception {
+        var first = spy(submission("first"));
+        var second = submission("second");
+        File file = first.getFiles().iterator().next();
+        doReturn(Map.of(file, 2)).when(first).getTokenCountPerFile();
+        File unarchived = directory.resolve("private-unarchived.java").toFile();
+        first.setTokenList(List.of(identityToken(unarchived, 1, "unarchived"), identityToken(file, 1, "archived")));
+        var baseline = new ConfigurationResult(List.of(), result(false, first, second));
+        first.setTokenList(List.of(identityToken(file, 8, "unarchived"), identityToken(file, 8, "archived")));
+        var reporting = result(true, first, second);
+        var normalized = new ConfigurationResult(List.of(), reporting);
+        reporting.setNormalizationAnalysis(NormalizationSnapshot.from(new NormalizationAnalysis.Result(List.of(baseline, normalized), normalized)));
+
+        JsonNode data = json(export(reporting), "normalization/first.json");
+
+        JsonNode baselineTokens = data.get("streams").get(0).get("tokens");
+        JsonNode reportingTokens = data.get("streams").get(1).get("tokens");
+        assertTrue(baselineTokens.get(0).get("region").isNull());
+        assertEquals("first/nested/Main.java", reportingTokens.get(0).get("region").get("file").asText());
+        for (int index = 0; index < 2; index++) {
+            JsonNode key = baselineTokens.get(index).get("correspondenceKey");
+            assertTrue(key.isIntegralNumber());
+            assertEquals(key, reportingTokens.get(index).get("correspondenceKey"));
+        }
+        assertNotEquals(baselineTokens.get(0).get("correspondenceKey"), baselineTokens.get(1).get("correspondenceKey"));
+        assertFalse(data.toString().contains("private-unarchived"));
+        assertFalse(data.toString().contains("\"unarchived\""));
+        assertFalse(data.toString().contains("\"archived\""));
+        assertFalse(data.toString().contains(directory.toString().replace("\\", "\\\\")));
+        assertFalse(data.toString().contains(directory.toString().replace('\\', '/')));
+    }
+
+    @Test
     void supportsAdditionalConfigurationsAndDoesNotInventMissingStreams() throws Exception {
         var first = submission("first");
         var second = submission("second");
         var third = submission("third");
         File file = second.getFiles().iterator().next();
-        second.setTokenList(List.of(token(file, 1), Token.fileEnd(file)));
+        second.setTokenList(List.of(identityToken(file, 1, "private-common-anchor"), Token.fileEnd(file)));
         var baseline = new ConfigurationResult(List.of(), result(false, first, second));
-        second.setTokenList(List.of(token(file, 1), token(file, 4), Token.fileEnd(file)));
+        second.setTokenList(
+                List.of(identityToken(file, 4, "private-common-anchor"), identityToken(file, 4, "private-added-anchor"), Token.fileEnd(file)));
         var middle = new ConfigurationResult(List.of(() -> "middle"), result(true, second, third));
-        second.setTokenList(List.of(token(file, 1), token(file, 4), Token.fileEnd(file)));
+        second.setTokenList(
+                List.of(identityToken(file, 8, "private-common-anchor"), identityToken(file, 8, "private-added-anchor"), Token.fileEnd(file)));
         var reporting = new ConfigurationResult(List.of(() -> "last"), result(true, first, second, third));
         var snapshot = NormalizationSnapshot.from(new NormalizationAnalysis.Result(List.of(baseline, middle, reporting), reporting));
         var writer = new TestableReportWriter();
@@ -283,6 +356,8 @@ class NormalizationReportWriterTest {
         assertTrue(addedKey.isIntegralNumber());
         assertEquals(addedKey, secondStreams.get(2).get("tokens").get(1).get("correspondenceKey"));
         assertNotEquals(secondStreams.get(0).get("tokens").get(0).get("correspondenceKey"), addedKey);
+        assertFalse(secondData.toString().contains("private-common-anchor"));
+        assertFalse(secondData.toString().contains("private-added-anchor"));
     }
 
     @Test
@@ -371,6 +446,20 @@ class NormalizationReportWriterTest {
 
     private Token token(File file, int line) {
         return new Token(STATEMENT, file, line, 2, line + 1, 7, Token.NO_VALUE);
+    }
+
+    private Token identityToken(File file, int line, String identity) {
+        class IdentifiedToken extends Token implements IdentityAwareToken {
+            IdentifiedToken() {
+                super(STATEMENT, file, line, 2, line + 1, 7, Token.NO_VALUE);
+            }
+
+            @Override
+            public Optional<String> identity() {
+                return Optional.ofNullable(identity);
+            }
+        }
+        return new IdentifiedToken();
     }
 
     private Token provenanceToken(File file) {
